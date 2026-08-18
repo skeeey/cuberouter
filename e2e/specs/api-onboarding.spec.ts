@@ -23,11 +23,12 @@ from POST /api/user/login.
 
 File independence: this spec does not run system setup and does not depend
 on journey.spec.ts data. Deployment initialization is a one-time gate owned
-by the bootstrap spec (000-journey.spec.ts); this file requires the system
-to already be initialized and fails fast with a clear message otherwise.
-Every run creates its own user with a unique username, so the file can be
-run repeatedly against the same deployment without colliding with earlier
-runs or with other spec files.
+by the global setup (e2e/global-setup.ts), which runs before every spec, so
+this file can rely on an initialized system regardless of run order, file
+name, or whether journey.spec.ts is run at all. Every run creates its own
+user with a unique username, so the file can be run repeatedly against the
+same deployment without colliding with earlier runs or with other spec
+files.
 
 Note: sign-in and page loads fire CriticalRateLimit-marked requests (login,
 auth/refresh, PUT /api/user/self), so the e2e deployment disables
@@ -38,8 +39,8 @@ wallet subscriptions, playground) are covered with real browser steps.
 */
 import { expect, test, type APIRequestContext } from '@playwright/test'
 
-// Must match the admin account the bootstrap spec (000-journey.spec.ts)
-// creates during setup, so this spec can sign in as root.
+// Must match the admin account the global setup (e2e/global-setup.ts)
+// creates during initialization, so this spec can sign in as root.
 const ADMIN = { username: 'root', password: 'correct-horse-battery' }
 
 // Deck slide 6: "suggested to use email as username". The timestamp suffix
@@ -85,20 +86,6 @@ function adminHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${rootToken}` }
 }
 
-// System setup is a one-time gate owned by the bootstrap spec
-// (000-journey.spec.ts). This spec only requires the system to already be
-// initialized; it must never run setup itself, or it would consume the
-// freshness journey.spec.ts asserts.
-async function assertSystemInitialized(request: APIRequestContext): Promise<void> {
-  const setup = await request.get('/api/setup')
-  const setupBody = await setup.json()
-  expect(setupBody.success).toBe(true)
-  expect(
-    setupBody.data.status,
-    'system is not initialized — run 000-journey.spec.ts first (or initialize the deployment)'
-  ).toBe(true)
-}
-
 async function login(
   request: APIRequestContext,
   username: string,
@@ -115,7 +102,6 @@ async function login(
 test.describe.configure({ mode: 'serial', retries: 0 })
 
 test.beforeAll(async ({ request }) => {
-  await assertSystemInitialized(request)
   rootToken = await login(request, ADMIN.username, ADMIN.password)
 })
 
