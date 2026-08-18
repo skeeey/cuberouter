@@ -95,6 +95,9 @@ jobs:
         working-directory: e2e
         env:
           E2E_BASE_URL: ${{ env.E2E_BASE_URL }}
+          # In-cluster address of the MockLLM service (e2e/k8s/mockllm.yaml);
+          # the channel's base_url is used by the backend pod to reach it.
+          MOCKLLM_BASE_URL: http://mockllm:18000
           CI: 'true'
         run: npx playwright test
 
