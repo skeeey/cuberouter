@@ -350,6 +350,19 @@ type PasswordResetRequest struct {
 	Token string `json:"token"`
 }
 
+// resetLinkInvalidCode 标记重置链接失效（token 缺失/过期/已消费），前端据此
+// 切换到无效链接状态而不是停留在表单
+const resetLinkInvalidCode = "PASSWORD_RESET_LINK_INVALID"
+
+// resetLinkInvalidResponse 返回带 code 的失效链接响应（区别于普通业务错误）
+func resetLinkInvalidResponse(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"code":    resetLinkInvalidCode,
+		"message": common.TranslateMessage(c, i18n.MsgUserPasswordResetLinkInvalid),
+	})
+}
+
 // @Summary  通过邮箱令牌重置密码
 // @Tags     用户-认证
 // @Produce  json
@@ -368,25 +381,63 @@ func ResetPassword(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
+	// 原子地 claim token：同一 token 的并发请求只有第一个能通过，其余立即
+	// 视为链接失效——避免两个请求各自投递不同新密码、后落库者作废先投者。
+	if !common.ClaimVerificationCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
+		resetLinkInvalidResponse(c)
 		return
 	}
 	password := common.GenerateVerificationCode(12)
-	err = model.ResetUserPasswordByEmail(req.Email, password)
+
+	// 先发送邮件，投递成功后再落库新密码并消费重置 token：SMTP 失败时
+	// 旧密码与 token 都保持原样，用户可重试，不会被锁在门外。
+	subject := common.WrapBilingualSubject(
+		fmt.Sprintf("%s Password Reset", common.SystemName),
+		fmt.Sprintf("%s密码重置", common.SystemName),
+	)
+	zhContent := fmt.Sprintf("<p>您好，您的 %s 密码已重置。</p>"+
+		"<p>您的新密码为：<strong>%s</strong></p>"+
+		"<p>请使用新密码登录并及时修改密码。如果不是本人操作，请立即联系管理员。</p>",
+		common.SystemName, password)
+	enContent := fmt.Sprintf("<p>Hello, your password for %s has been reset.</p>"+
+		"<p>Your new password is: <strong>%s</strong></p>"+
+		"<p>Please log in with the new password and change it as soon as possible. "+
+		"If this was not your action, please contact the administrator immediately.</p>",
+		common.SystemName, password)
+	content := common.WrapBilingualContent(enContent, zhContent)
+	emailErr := common.SendEmail(subject, req.Email, content)
+	if emailErr != nil {
+		// 邮件未投出，释放 claim：旧密码与 token 都保持原样，用户可重试，
+		// 不会被锁在门外。
+		common.ReleaseVerificationCodeClaim(req.Email, req.Token, common.PasswordResetPurpose)
+		// 不记录用户邮箱：邮箱属于用户标识，落日志会形成 PII 留存路径
+		common.SysError(fmt.Sprintf("密码重置邮件发送失败: %v", emailErr))
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetEmailSendFailed)
+		return
+	}
+
+	committed, err := model.ResetUserPasswordByEmail(req.Email, password)
+	if committed {
+		// 密码更新已提交即消费重置 token：即使 post-commit 步骤（缓存发布/
+		// 会话撤销）失败返回 error，token 也不能保留——否则可被重放再次
+		// 轮换密码
+		common.DeleteKey(req.Email, common.PasswordResetPurpose)
+	} else if err != nil {
+		// 密码未落库（用户不存在/数据库错误），释放 claim 让用户可重试。
+		common.ReleaseVerificationCodeClaim(req.Email, req.Token, common.PasswordResetPurpose)
+	}
 	if err != nil {
 		if errors.Is(err, model.ErrEmailNotFound) || errors.Is(err, model.ErrEmailAmbiguous) {
-			common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
+			resetLinkInvalidResponse(c)
 			return
 		}
 		common.ApiError(c, err)
 		return
 	}
-	common.DeleteKey(req.Email, common.PasswordResetPurpose)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
-		"data":    password,
+		"message": common.TranslateMessage(c, i18n.MsgUserPasswordResetEmailSent),
 	})
 	return
 }
