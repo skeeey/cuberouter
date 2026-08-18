@@ -12,6 +12,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -166,6 +167,31 @@ func TestOaiChatToResponsesStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 		`event: response.function_call_arguments.done`,
 		`event: response.completed`,
 	)
+}
+
+func TestOaiResponsesToChatStreamHandler_EOFFromPartialStreamReturnsIncomplete(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	// 上游在 response.completed 之前断开（EOF，无 [DONE]）：必须视为不完整流，
+	// 返回 stream_incomplete 错误而不是合成 usage 计费。
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"gpt-test","created_at":1710000000}}`,
+		`data: {"type":"response.output_text.delta","delta":"partial output"}`,
+		``,
+	}, "\n")
+
+	c, _, resp, info := newResponsesChatTestContext(t, body, true)
+
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.NotNil(t, err, "EOF 未完成应返回错误")
+	assert.Equal(t, types.ErrorCodeStreamIncomplete, err.GetErrorCode())
+	assert.Nil(t, usage, "EOF 未完成不应返回 usage")
 }
 
 func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {

@@ -267,6 +267,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	}
 
+	var sawCompleted bool
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if streamErr != nil {
 			sr.Stop(streamErr)
@@ -278,6 +280,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			logger.LogError(c, "failed to unmarshal responses stream event: "+err.Error())
 			sr.Error(err)
 			return
+		}
+
+		if streamResp.Type == "response.completed" {
+			sawCompleted = true
 		}
 
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
@@ -309,6 +315,18 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	if streamErr != nil {
 		return nil, streamErr
+	}
+
+	// 流式扫描异常（空闲超时 / 扫描器错误 / 客户端断开 / panic / ping 失败）：
+	// 不产出合成 usage 计费，返回对应错误并跳过计费与消费日志。
+	if st := info.StreamStatus; st != nil && !st.IsNormalEnd() {
+		clientDisconnected := st.EndReason == relaycommon.StreamEndReasonClientGone ||
+			st.EndReason == relaycommon.StreamEndReasonPingFail
+		return returnOpenAIStreamError(c, info, openAIStreamResultError(st), clientDisconnected)
+	}
+	// 未收到 response.completed 就 EOF：上游在完整结束前断开，视为不完整流。
+	if st := info.StreamStatus; st != nil && st.EndReason == relaycommon.StreamEndReasonEOF && !sawCompleted {
+		return returnOpenAIStreamError(c, info, incompleteOpenAIStreamError(), false)
 	}
 
 	usage := state.Usage()
