@@ -37,6 +37,11 @@ spec:
             # limiting is a production concern, not what this suite asserts.
             - name: CRITICAL_RATE_LIMIT_ENABLE
               value: "false"
+            # The whole suite also issues hundreds of /api calls per run and
+            # is re-runnable against the same deployment, blowing through the
+            # default 360 requests / 3 min per-IP cap.
+            - name: GLOBAL_API_RATE_LIMIT_ENABLE
+              value: "false"
             # The SPA fetches many static chunks per page load and every UI
             # test starts with a fresh browser context (empty cache), which
             # blows through the default 120 requests / 3 min per-IP web cap.

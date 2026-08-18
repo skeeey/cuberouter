@@ -1,0 +1,135 @@
+# MockLLM upstream for the e2e relay suite (see specs/channel.spec.ts).
+# mockllm is a PyPI package (no official image), so the pod installs it on
+# first boot. It runs through e2e/mockllm/launcher.py, which adds the
+# OpenAI-compatible /v1/models endpoint upstream mockllm is missing, and
+# serves the deterministic responses from the ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mockllm-config
+  namespace: cuberouter-e2e
+data:
+  launcher.py: |
+    #!/usr/bin/env python3
+    """MockLLM launcher: adds OpenAI-compatible GET /v1/models (see e2e/mockllm/launcher.py)."""
+    import argparse
+    import os
+
+    import yaml
+
+
+    def load_models(responses_path):
+        with open(responses_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        models = data.get("models") or ["mock-llm"]
+        return [m for m in models if isinstance(m, str) and m.strip()]
+
+
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--responses",
+            default=os.environ.get("MOCKLLM_RESPONSES_FILE", "responses.yml"),
+        )
+        parser.add_argument("--host", default="0.0.0.0")
+        parser.add_argument("--port", type=int, default=8000)
+        args = parser.parse_args()
+
+        os.environ["MOCKLLM_RESPONSES_FILE"] = args.responses
+
+        from fastapi.responses import JSONResponse
+        from mockllm import server
+
+        models = load_models(args.responses)
+
+        @server.app.get("/v1/models")
+        def list_models_openai():
+            return JSONResponse(
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": m, "object": "model", "created": 0, "owned_by": "mockllm"}
+                        for m in models
+                    ],
+                }
+            )
+
+        import uvicorn
+
+        uvicorn.run(server.app, host=args.host, port=args.port, log_level="info")
+
+
+    if __name__ == "__main__":
+        main()
+  responses.yml: |
+    models:
+      - mock-llm
+      - mock-llm-2
+      - gpt-3.5-turbo
+      - gpt-4
+    responses:
+      "ping": "pong from MockLLM"
+      "pong from MockLLM": "pong from MockLLM"
+      "What is the capital of France?": "Paris is the capital of France (mock)."
+      "Paris is the capital of France (mock).": "Paris is the capital of France (mock)."
+      "Hello from the playground": "Hello back from MockLLM!"
+      "Hello back from MockLLM!": "Hello back from MockLLM!"
+    defaults:
+      unknown_response: "I don't know the answer to that. This is a mock response."
+    settings:
+      lag_enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockllm
+  namespace: cuberouter-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mockllm
+  template:
+    metadata:
+      labels:
+        app: mockllm
+    spec:
+      containers:
+        - name: mockllm
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - pip install --quiet --no-cache-dir mockllm && python /etc/mockllm/launcher.py --responses /etc/mockllm/responses.yml --host 0.0.0.0 --port 18000
+          ports:
+            - containerPort: 18000
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mockllm
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: 18000
+            initialDelaySeconds: 5
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: mockllm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockllm
+  namespace: cuberouter-e2e
+spec:
+  selector:
+    app: mockllm
+  ports:
+    - port: 18000
+      targetPort: 18000

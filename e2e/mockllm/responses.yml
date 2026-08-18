@@ -1,0 +1,34 @@
+# MockLLM response configuration used by the e2e suite (see channel.spec.ts).
+#
+# MockLLM matches the LAST user message EXACTLY against these keys and
+# returns the mapped text, so the suite can assert deterministic responses
+# end to end through the cuberouter relay. Unknown prompts fall back to
+# `defaults.unknown_response`.
+#
+# `models` is not consumed by mockllm itself; e2e/mockllm/launcher.py reads it
+# to serve the OpenAI-compatible GET /v1/models endpoint (upstream mockllm
+# lacks it), which cuberouter's channel "fetch models" feature requires.
+#
+# Streaming note: mockllm 0.0.7/0.0.8 resolves the response text AGAIN as a
+# prompt when streaming (get_streaming_response_with_lag -> get_response), so
+# each response value is also registered as a self-mapping key below to keep
+# streamed output identical to the non-streamed output.
+models:
+  - mock-llm
+  - mock-llm-2
+  - gpt-3.5-turbo
+  - gpt-4
+
+responses:
+  "ping": "pong from MockLLM"
+  "pong from MockLLM": "pong from MockLLM"
+  "What is the capital of France?": "Paris is the capital of France (mock)."
+  "Paris is the capital of France (mock).": "Paris is the capital of France (mock)."
+  "Hello from the playground": "Hello back from MockLLM!"
+  "Hello back from MockLLM!": "Hello back from MockLLM!"
+
+defaults:
+  unknown_response: "I don't know the answer to that. This is a mock response."
+
+settings:
+  lag_enabled: false
