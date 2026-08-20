@@ -19,6 +19,8 @@ export function defineAggregatedApiSuite(prefix: string) {
     const username = `agg.user.${runSuffix}@example.com`
     const password = 'AggUser123'
     const planTitle = `Agg Plan ${runSuffix}`
+    // The plan's total_amount; the status API reports it as plan_raw_quota.
+    const planTotalAmount = 400000000
 
     let planId = 0
     let userId = 0
@@ -53,7 +55,7 @@ export function defineAggregatedApiSuite(prefix: string) {
             price_amount: 1288,
             duration_unit: 'month',
             duration_value: 3,
-            total_amount: 400000000,
+            total_amount: planTotalAmount,
             quota_reset_period: 'No Reset',
             sort_order: 30,
             enabled: true,
@@ -159,6 +161,37 @@ export function defineAggregatedApiSuite(prefix: string) {
       )
       expect(plan).toBeTruthy()
       expect(plan.status).toBe('active')
+    })
+
+    test('get user status reports plan status, validity and quota', async ({
+      request,
+    }) => {
+      const res = await request.get(`${prefix}/users/${userId}/status`, {
+        headers: adminHeaders(),
+      })
+      const body = await res.json()
+      expect(body.status).toBe('success')
+
+      const plan = (body.plans ?? []).find(
+        (s: { plan_id: number }) => s.plan_id === planId
+      )
+      expect(plan).toBeTruthy()
+
+      // The bound subscription is active, and nothing has been consumed since
+      // binding, so the remaining quota equals the plan's full raw quota.
+      expect(plan.status).toBe('active')
+      expect(plan.plan_raw_quota).toBe(planTotalAmount)
+      expect(plan.plan_remaining_quota).toBe(planTotalAmount)
+
+      // The validity window must match the plan's 3-month duration:
+      // validity_end_at == validity_start_at + 3 months.
+      const start = new Date(plan.validity_start_at.replace(' ', 'T'))
+      const end = new Date(plan.validity_end_at.replace(' ', 'T'))
+      expect(Number.isNaN(start.getTime())).toBe(false)
+      expect(Number.isNaN(end.getTime())).toBe(false)
+      const expectedEnd = new Date(start)
+      expectedEnd.setMonth(expectedEnd.getMonth() + 3)
+      expect(end.getTime()).toBe(expectedEnd.getTime())
     })
 
     test('guards: root and missing users cannot be suspended', async ({

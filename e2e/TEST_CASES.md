@@ -1,6 +1,6 @@
 # CubeRouter E2E Test Cases
 
-本文件汇总当前 e2e 测试套件的全部用例（46 个），以及它们覆盖的业务场景。
+本文件汇总当前 e2e 测试套件的全部用例（48 个），以及它们覆盖的业务场景。
 
 ## 测试基础设施
 
@@ -15,7 +15,7 @@
 
 ```bash
 cd e2e
-npx playwright test                 # 全量 46 个
+npx playwright test                 # 全量 48 个
 npx playwright test api-onboarding  # 指定文件
 npx playwright test api-v1 api-v2   # 聚合 API v1+v2
 npx playwright test channel.spec.ts # MockLLM 渠道/relay 套件
@@ -51,9 +51,9 @@ PPTX 的 `/api/v2/*` onboarding 接口映射到产品真实接口（套餐/用�
 | 13 | slide 13 — user opens the playground and enters a question | slide 13 | 操练场入口可用（输入框/发送按钮） |
 | 14 | appendix — plan input types are validated | slide 14 | 参数类型校验：缺 title、负价格、超 9999 上限均被拒 |
 
-### 3. `specs/api-v1.spec.ts` — 聚合 API @ `/api/v1`（8 个）
+### 3. `specs/api-v1.spec.ts` — 聚合 API @ `/api/v1`（9 个）
 
-### 4. `specs/api-v2.spec.ts` — 聚合 API @ `/api/v2`（8 个）
+### 4. `specs/api-v2.spec.ts` — 聚合 API @ `/api/v2`（9 个）
 
 v1 与 v2 挂载同一组 handler（`router/api-router.go` 三前缀共享），用例一致、各自独立覆盖：
 
@@ -67,6 +67,7 @@ v1 与 v2 挂载同一组 handler（`router/api-router.go` 三前缀共享），
 | 6 | bind subscription (API#6) attaches the plan | `POST /users/:id/bind-subscription` → 状态接口 `plans` 中出现 active 订阅 |
 | 7 | guards: root and missing users cannot be suspended | 禁 root（"不能禁用超级管理员"）、不存在用户、非法 id 均返回 fail |
 | 8 | delete user (API#9) removes the account | `POST /users/:id/delete` → 用户无法登录、状态接口报"用户不存在" |
+| 9 | get user status reports plan status, validity and quota | `GET /users/:id/status` → 绑定订阅返回 `status=active`；`validity_start_at`/`validity_end_at` 构成 3 个月有效期窗口；`plan_raw_quota`/`plan_remaining_quota` = 套餐 total_amount（未消耗） |
 
 > 说明：`/api`、`/api/v1`、`/api/v2` 是同一套 dashboard API 的三个前缀（对外第三方稳定契约）；relay 的顶层 `/v1/*`（OpenAI 兼容）与 `/pg/*` 是另一棵路由树，不在此套件内。
 
@@ -95,10 +96,10 @@ v1 与 v2 挂载同一组 handler（`router/api-router.go` 三前缀共享），
 |---|---|
 | 部署旅程冒烟 | 2 |
 | HKBN 对接（套餐/用户/订阅/配额/挂起/恢复/改密 + UI 流程） | 14 |
-| 聚合 API v1 | 8 |
-| 聚合 API v2 | 8 |
+| 聚合 API v1 | 9 |
+| 聚合 API v2 | 9 |
 | MockLLM 渠道/API Key/relay/UI | 14 |
-| **合计** | **46** |
+| **合计** | **48** |
 
 关键回归点（值得重点关注）：
 - **操作者 API_KEY 在 suspend/reactivate 全程有效**（不会被吊销）
