@@ -32,7 +32,6 @@ jobs:
           upstream_branch: 'main'
           max_risk: 'medium'
           verbose: 'true'
-          limit: 10
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
