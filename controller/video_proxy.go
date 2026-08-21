@@ -45,6 +45,15 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 	if !exists || task == nil {
+		// 兼容只持有上游 task ID 的调用方
+		task, exists, err = model.GetByUpstreamTaskId(userID, taskID)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to query task %s: %s", taskID, err.Error()))
+			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to query task")
+			return
+		}
+	}
+	if !exists || task == nil {
 		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Task not found")
 		return
 	}
@@ -175,7 +184,7 @@ func VideoProxy(c *gin.Context) {
 		}
 	}
 
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	c.Writer.Header().Set("Cache-Control", "no-store")
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
@@ -209,7 +218,7 @@ func writeVideoDataURL(c *gin.Context, dataURL string) error {
 	}
 
 	c.Writer.Header().Set("Content-Type", mimeType)
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	c.Writer.Header().Set("Cache-Control", "no-store")
 	c.Writer.WriteHeader(http.StatusOK)
 	_, err = c.Writer.Write(videoBytes)
 	return err

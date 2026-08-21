@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -27,18 +28,11 @@ import (
 // Request / Response structures
 // ============================
 
-type ContentItem struct {
-	Type     string    `json:"type,omitempty"`
-	Text     string    `json:"text,omitempty"`
-	ImageURL *MediaURL `json:"image_url,omitempty"`
-	VideoURL *MediaURL `json:"video_url,omitempty"`
-	AudioURL *MediaURL `json:"audio_url,omitempty"`
-	Role     string    `json:"role,omitempty"`
-}
+// ContentItem、MediaURL 与网关统一的 Ark 内容项类型一致，
+// 客户端直传的 content 数组可零拷贝透传。
+type ContentItem = relaycommon.TaskContentItem
 
-type MediaURL struct {
-	URL string `json:"url,omitempty"`
-}
+type MediaURL = relaycommon.TaskMediaURL
 
 type requestPayload struct {
 	Model                 string         `json:"model"`
@@ -118,7 +112,8 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	// Accept only POST /v1/video/generations as "generate" action.
-	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
+	// Ark 风格 content 数组请求由本渠道接受。
+	return relaycommon.ValidateBasicTaskRequestWithArkContent(c, info, constant.TaskActionGenerate)
 }
 
 // BuildRequestURL constructs the upstream URL.
@@ -134,14 +129,17 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	return nil
 }
 
-// EstimateBilling 根据请求 metadata 中的输出分辨率与是否包含视频输入，返回相对基准价的计费 OtherRatio。
+// EstimateBilling 根据请求的输出分辨率与是否包含视频输入，返回相对基准价的计费 OtherRatio。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
 	}
-	hasVideo := hasVideoInMetadata(req.Metadata)
-	resolution, _ := req.Metadata["resolution"].(string)
+	hasVideo := hasVideoReference(&req)
+	resolution := req.Resolution
+	if resolution == "" {
+		resolution, _ = req.Metadata["resolution"].(string)
+	}
 	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
 	if !ok || ratio == 1.0 {
 		return nil
@@ -149,13 +147,18 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	return map[string]float64{"video_input": ratio}
 }
 
-// hasVideoInMetadata 直接检查 metadata 的 content 数组是否包含 video_url 条目，
-// 避免构建完整的上游 requestPayload。
-func hasVideoInMetadata(metadata map[string]interface{}) bool {
-	if metadata == nil {
+// hasVideoReference 检查请求的顶层 content 数组或 metadata.content 是否包含
+// video_url 条目，避免构建完整的上游 requestPayload。
+func hasVideoReference(req *relaycommon.TaskSubmitReq) bool {
+	for _, item := range req.Content {
+		if item.Type == "video_url" || (item.Type == "" && item.VideoURL != nil) {
+			return true
+		}
+	}
+	if req.Metadata == nil {
 		return false
 	}
-	contentRaw, ok := metadata["content"]
+	contentRaw, ok := req.Metadata["content"]
 	if !ok {
 		return false
 	}
@@ -227,6 +230,13 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 
+	// Ark 风格端点（/v1/videos/generations/tasks）直接返回 Ark 提交形态，
+	// 其余路径保持 OpenAI 视频格式。
+	if relaycommon.IsArkVideoPath(c) {
+		c.JSON(http.StatusOK, dto.NewArkVideoSubmit(info.PublicTaskID, info.OriginModelName, time.Now().Unix()))
+		return dResp.ID, responseBody, nil
+	}
+
 	ov := dto.NewOpenAIVideo()
 	ov.ID = info.PublicTaskID
 	ov.TaskID = info.PublicTaskID
@@ -270,19 +280,26 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
+// convertToRequestPayload 将网关统一请求转换为上游 Ark 内容协议：
+//   - 客户端直传 content 数组（含 role 标注）时原样透传
+//   - 否则 images 列表转换为 image_url 项，prompt 独占 text 项
+//   - metadata 作为覆盖层后可整体替换 content / duration 等字段
+//   - duration 优先级：metadata 覆盖 > 顶层 duration > OpenAI 风格 seconds
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
 	r := requestPayload{
 		Model:   req.Model,
 		Content: []ContentItem{},
 	}
 
-	// Add images if present
-	if req.HasImage() {
+	if len(req.Content) > 0 {
+		r.Content = append(r.Content, req.Content...)
+	} else if req.HasImage() {
+		// Add images if present
 		for _, imgURL := range req.Images {
 			r.Content = append(r.Content, ContentItem{
 				Type: "image_url",
 				ImageURL: &MediaURL{
-					URL: imgURL,
+					URL: lo.ToPtr(imgURL),
 				},
 			})
 		}
@@ -292,16 +309,65 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	if err := taskcommon.UnmarshalMetadata(metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
+	// 顶层 content 与 metadata.content 都是客户端直接给定的内容数组，
+	// 其中的 text 项（即客户端提示词）都必须原样保留。
+	_, contentFromClient := metadata["content"]
+	contentFromClient = contentFromClient || len(req.Content) > 0
 
-	if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
-		r.Duration = lo.ToPtr(dto.IntValue(sec))
+	if r.Duration == nil {
+		if req.Duration > 0 {
+			r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
+		} else if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
+			r.Duration = lo.ToPtr(dto.IntValue(sec))
+		}
 	}
 
-	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
-	r.Content = append(r.Content, ContentItem{
-		Type: "text",
-		Text: req.Prompt,
-	})
+	if r.Resolution == "" {
+		r.Resolution = req.Resolution
+	}
+
+	// ratio 与 Ark 规范一致默认 "adaptive"：上游在字段缺失时报
+	// "ratio is required"，因此显式下发规范默认值。req.Ratio 为指针，
+	// 以区分客户端缺省（nil）与显式空串；两者都落到 adaptive，空串
+	// 不是合法 ratio。
+	if r.Ratio == "" && req.Ratio != nil {
+		r.Ratio = *req.Ratio
+	}
+	if r.Ratio == "" {
+		r.Ratio = "adaptive"
+	}
+
+	if contentFromClient {
+		// content 直传时其中的 text 项即提示词；仅在非空 text 缺失且顶层
+		// prompt 非空时才补齐，避免改写客户端给定的提示词。空的 text 项
+		// 不视为已携带提示词，直接用顶层 prompt 覆盖或追加。
+		hasText := false
+		emptyTextIdx := -1
+		for i, c := range r.Content {
+			if c.Type == "text" {
+				if c.Text != nil && strings.TrimSpace(*c.Text) != "" {
+					hasText = true
+					break
+				}
+				if emptyTextIdx == -1 {
+					emptyTextIdx = i
+				}
+			}
+		}
+		if !hasText && strings.TrimSpace(req.Prompt) != "" {
+			if emptyTextIdx >= 0 {
+				r.Content[emptyTextIdx].Text = lo.ToPtr(req.Prompt)
+			} else {
+				r.Content = append(r.Content, ContentItem{Type: "text", Text: lo.ToPtr(req.Prompt)})
+			}
+		}
+	} else {
+		r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
+		r.Content = append(r.Content, ContentItem{
+			Type: "text",
+			Text: lo.ToPtr(req.Prompt),
+		})
+	}
 
 	return &r, nil
 }
@@ -335,6 +401,16 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
 		taskResult.Reason = resTask.Error.Message
+	case "expired", "cancelled":
+		// 上游任务存在过期/取消终态，落到 default 会被当成
+		// in_progress 永远轮询，统一映射为失败态。
+		taskResult.Status = model.TaskStatusFailure
+		taskResult.Progress = "100%"
+		if resTask.Error.Message != "" {
+			taskResult.Reason = resTask.Error.Message
+		} else {
+			taskResult.Reason = fmt.Sprintf("task %s", resTask.Status)
+		}
 	default:
 		// Unknown status, treat as processing
 		taskResult.Status = model.TaskStatusInProgress
@@ -360,12 +436,70 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	openAIVideo.CompletedAt = originTask.UpdatedAt
 	openAIVideo.Model = originTask.Properties.OriginModelName
 
-	if dResp.Status == "failed" {
+	if originTask.Status == model.TaskStatusFailure {
+		// 失败/过期/取消等终态映射为失败后，转换结果必须携带 terminal error，
+		// 否则客户端会把失败任务当成成功处理。优先用上游错误信息，
+		// 为空时退回状态文案（与 ParseTaskResult 保持一致）。
+		message := dResp.Error.Message
+		if message == "" {
+			message = fmt.Sprintf("task %s", dResp.Status)
+		}
 		openAIVideo.Error = &dto.OpenAIVideoError{
-			Message: dResp.Error.Message,
+			Message: message,
 			Code:    dResp.Error.Code,
 		}
 	}
 
 	return common.Marshal(openAIVideo)
+}
+
+// ConvertToArkVideo 将任务转换为 Ark 风格视频响应（/v1/videos/generations/tasks
+// 查询端点的对外返回）。与 ConvertToOpenAIVideo 共用 originTask.Data 中缓存的
+// 上游任务快照；终态失败时按原始上游状态区分 expired / failed。
+func (a *TaskAdaptor) ConvertToArkVideo(originTask *model.Task) ([]byte, error) {
+	var dResp responseTask
+	if err := common.Unmarshal(originTask.Data, &dResp); err != nil {
+		return nil, errors.Wrap(err, "unmarshal doubao task data failed")
+	}
+
+	task := dto.ArkVideoTask{
+		ID:        originTask.TaskID,
+		Model:     originTask.Properties.OriginModelName,
+		CreatedAt: originTask.CreatedAt,
+		UpdatedAt: originTask.UpdatedAt,
+	}
+
+	switch originTask.Status {
+	case model.TaskStatusQueued, model.TaskStatusSubmitted:
+		task.Status = dto.ArkVideoStatusQueued
+	case model.TaskStatusInProgress:
+		task.Status = dto.ArkVideoStatusRunning
+	case model.TaskStatusSuccess:
+		task.Status = dto.ArkVideoStatusSucceeded
+		if dResp.Content.VideoURL != "" {
+			task.Content = &dto.ArkVideoContent{VideoURL: dResp.Content.VideoURL}
+		}
+		if dResp.Duration > 0 {
+			task.Output = &dto.ArkVideoOutput{Duration: dResp.Duration}
+		}
+		if dResp.Usage.CompletionTokens > 0 {
+			task.Usage = &dto.ArkVideoUsage{CompletionTokens: dResp.Usage.CompletionTokens}
+		}
+	case model.TaskStatusFailure:
+		// expired/cancelled 等终态在 ParseTaskResult 阶段统一折叠为 FAILURE，
+		// 这里依据缓存的原始上游状态区分 expired 与 failed。
+		task.Status = dto.ArkVideoStatusFailed
+		errorCode := dto.ArkVideoErrorFailed
+		if dResp.Status == "expired" {
+			task.Status = dto.ArkVideoStatusExpired
+			errorCode = dto.ArkVideoErrorExpired
+		}
+		message := dResp.Error.Message
+		if message == "" {
+			message = fmt.Sprintf("task %s", dResp.Status)
+		}
+		task.Error = &dto.ArkVideoError{Code: errorCode, Message: message}
+	}
+
+	return common.Marshal(&task)
 }
