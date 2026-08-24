@@ -16,25 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { expect, describe, test } from 'vitest'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import { buildExportPayload } from '../export-utils'
+import { defineConfig } from 'vitest/config'
 
-describe('buildExportPayload', () => {
-  test('selected ids win over the current filter', () => {
-    expect(buildExportPayload([1, 2], { keyword: 'alice', group: 'vip' })).toEqual({
-      ids: [1, 2],
-    })
-  })
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-  test('falls back to the keyword/group filter', () => {
-    expect(buildExportPayload([], { keyword: 'alice', group: 'vip' })).toEqual({
-      keyword: 'alice',
-      group: 'vip',
-    })
-  })
-
-  test('omits empty filter fields (empty payload = export all)', () => {
-    expect(buildExportPayload([], { keyword: '', group: '' })).toEqual({})
-  })
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test-setup.ts'],
+    clearMocks: true,
+    restoreMocks: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
 })
