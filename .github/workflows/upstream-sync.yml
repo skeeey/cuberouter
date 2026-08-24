@@ -2,7 +2,7 @@ name: Upstream Sync
 
 on:
   schedule:
-    - cron: '0 22 * * 0'    # every Monday at 6am UTC
+    - cron: '0 22 * * 0,3'  # Sunday & Wednesday 22:00 UTC = Monday & Thursday 06:00 China time
   workflow_dispatch:         # trigger manually to test
 
 permissions:
