@@ -294,12 +294,17 @@ Completes the ops tier the campaign port deferred.
 
 ## Upstream sync
 
-An automated GitHub Action (`.github/workflows/upstream-sync.yml`) runs weekly
-(cron `0 22 * * 0` — Sunday 22:00 UTC, i.e. Monday 06:00 China time; the
-in-file comment "Monday at 6am UTC" is the same instant mislabelled as UTC) and
-uses `suanova/upstream-semantic-sync@v1` (risk cap `max_risk: medium`) to open
+An automated GitHub Action (`.github/workflows/upstream-sync.yml`) runs twice a
+week (cron `0 22 * * 0,3` — Sunday & Wednesday 22:00 UTC, i.e. Monday & Thursday
+06:00 China time) and uses `suanova/upstream-semantic-sync@v1` (risk cap
+`max_risk: medium`) to open
 a PR merging upstream `new-api` changes. Sync state is tracked in
 `knowledge/mappings.yaml` (`sync_state` → upstream commit hash).
+
+When creating a sync PR, resolve conflicts in favour of cuberouter's ported
+features and fork fixes (our changes win; e.g. the channel renumbering
+AstraFlow=59, Sub2API=60, NewAPI=61, and never restore upstream's fr/ru/ja/vi
+locales — only zh/zh-CN/zh-TW/en matter).
 
 Because the Go module path is unchanged, most upstream merges apply cleanly.
 The conflict surface is any file we added or modified — the ported feature
