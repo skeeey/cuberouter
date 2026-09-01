@@ -60,6 +60,7 @@ type ModelFormValues = {
   BillingMode: string
   BillingExpr: string
   VideoPrice: string
+  OffPeakWindow: string
 }
 
 type ModelRatioFormProps = {

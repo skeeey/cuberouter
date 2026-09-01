@@ -25,7 +25,16 @@ import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import {
+  Form,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DEFAULT_OFF_PEAK_WINDOW } from '@/stores/system-config-store'
 
 import { resetModelRatios } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
@@ -33,6 +42,8 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { GroupRatioForm } from './group-ratio-form'
 import { ModelRatioForm } from './model-ratio-form'
+import { isOffPeakWindowJson, parseOffPeakWindowJson } from './off-peak-window-drafts'
+import { OffPeakWindowInput } from './off-peak-window-input'
 import { ToolPriceSettings } from './tool-price-settings'
 import { UpstreamRatioSync } from './upstream-ratio-sync'
 import {
@@ -117,6 +128,10 @@ const createModelSchema = (t: Translate) =>
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
     VideoPrice: createJsonStringField(t),
+    OffPeakWindow: createJsonStringField(t, {
+      predicate: isOffPeakWindowJson,
+      predicateMessage: 'Expected an off-peak window JSON object',
+    }),
   })
 
 const createGroupSchema = (t: Translate) =>
@@ -195,6 +210,7 @@ export function RatioSettingsCard({
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
     VideoPrice: normalizeJsonString(modelDefaults.VideoPrice),
+    OffPeakWindow: normalizeJsonString(modelDefaults.OffPeakWindow),
   })
   const [savedModelValues, setSavedModelValues] = useState(
     modelNormalizedDefaults.current
@@ -232,6 +248,7 @@ export function RatioSettingsCard({
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
       VideoPrice: formatJsonForTextarea(modelDefaults.VideoPrice),
+      OffPeakWindow: formatJsonForTextarea(modelDefaults.OffPeakWindow),
     },
   })
 
@@ -267,6 +284,7 @@ export function RatioSettingsCard({
       BillingMode: normalizeJsonString(modelDefaults.BillingMode),
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
       VideoPrice: normalizeJsonString(modelDefaults.VideoPrice),
+      OffPeakWindow: normalizeJsonString(modelDefaults.OffPeakWindow),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
 
@@ -285,6 +303,7 @@ export function RatioSettingsCard({
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
       VideoPrice: formatJsonForTextarea(modelDefaults.VideoPrice),
+      OffPeakWindow: formatJsonForTextarea(modelDefaults.OffPeakWindow),
     })
   }, [modelDefaults, modelForm])
 
@@ -329,6 +348,7 @@ export function RatioSettingsCard({
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
         VideoPrice: normalizeJsonString(values.VideoPrice),
+        OffPeakWindow: normalizeJsonString(values.OffPeakWindow),
       }
 
       const apiKeyMap: Record<string, string> = {
@@ -417,6 +437,8 @@ export function RatioSettingsCard({
       5: 'grid-cols-5',
     }[visibleTabs.length] ?? 'grid-cols-4'
   const defaultTab = visibleTabs[0] ?? 'models'
+  const showOffPeakWindow =
+    visibleTabs.includes('models') || visibleTabs.includes('unset-models')
 
   const renderTabContent = (tab: RatioTabId) => {
     if (tab === 'models' || tab === 'unset-models') {
@@ -462,6 +484,36 @@ export function RatioSettingsCard({
     )
   }
 
+  const renderOffPeakWindowField = () => (
+    <Form {...modelForm}>
+      <FormField
+        control={modelForm.control}
+        name='OffPeakWindow'
+        render={({ field }) => {
+          const window =
+            parseOffPeakWindowJson(field.value) ?? DEFAULT_OFF_PEAK_WINDOW
+          return (
+            <FormItem>
+              <FormLabel>{t('Off-peak window')}</FormLabel>
+              <FormDescription>
+                {t(
+                  'Hours during which the off-peak video price applies. Equal start and end hours disable off-peak pricing.'
+                )}
+              </FormDescription>
+              <OffPeakWindowInput
+                value={window}
+                onChange={(nextWindow) =>
+                  field.onChange(JSON.stringify(nextWindow))
+                }
+              />
+              <FormMessage />
+            </FormItem>
+          )
+        }}
+      />
+    </Form>
+  )
+
   const renderTabSwitcher = () => (
     <TabsList className={`grid w-fit max-w-full ${tabsGridClass}`}>
       {visibleTabs.map((tab) => (
@@ -476,6 +528,7 @@ export function RatioSettingsCard({
     <>
       {visibleTabs.length === 1 ? (
         <SettingsSection title={t(titleKey)}>
+          {showOffPeakWindow && renderOffPeakWindowField()}
           {renderTabContent(defaultTab)}
         </SettingsSection>
       ) : (
@@ -485,6 +538,7 @@ export function RatioSettingsCard({
           </SettingsPageTitleStatusPortal>
 
           <SettingsSection title={t(titleKey)} className='min-h-0 flex-1'>
+            {showOffPeakWindow && renderOffPeakWindowField()}
             {visibleTabs.map((tab) => (
               <TabsContent key={tab} value={tab} className='min-h-0'>
                 {renderTabContent(tab)}

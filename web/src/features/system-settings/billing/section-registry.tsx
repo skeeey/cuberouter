@@ -39,6 +39,7 @@ const getModelDefaults = (settings: BillingSettings) => ({
   BillingMode: settings['billing_setting.billing_mode'],
   BillingExpr: settings['billing_setting.billing_expr'],
   VideoPrice: settings.VideoPrice,
+  OffPeakWindow: settings.OffPeakWindow,
 })
 
 const getGroupDefaults = (settings: BillingSettings) => ({
