@@ -100,7 +100,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     const { rows } = props.model.video_prices
     const windowLabel = getOffPeakWindowLabel(props.offPeakWindow)
     priceSummary = (
-      <div className='w-full min-w-0'>
+      <div className='mt-2 w-full min-w-0'>
         <div className='space-y-1'>
           {rows.map((row) => (
             <div
@@ -108,10 +108,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               className='flex items-baseline justify-between gap-x-2 whitespace-nowrap text-xs'
             >
               <span className='text-muted-foreground'>{row.resolution}</span>
-              <span className='text-foreground font-mono font-semibold tabular-nums'>
+              <span className='text-foreground font-mono tabular-nums'>
                 ¥{formatVideoPrice(row.normal_price)}
                 <span className='text-muted-foreground/70'>
-                  {' '}/ ¥{formatVideoPrice(row.off_peak_price)}
+                  {' '}/ ¥{formatVideoPrice(row.off_peak_price)} ({t('Off-peak')})
                 </span>
               </span>
             </div>
