@@ -37,6 +37,7 @@ func TestUpdateVideoPriceValidation(t *testing.T) {
 		{"zero_normal_price", `{"m":{"rows":[{"resolution":"1080p","normal_price":0,"off_peak_price":0.625}]}}`},
 		{"negative_normal_price", `{"m":{"rows":[{"resolution":"1080p","normal_price":-1,"off_peak_price":0.625}]}}`},
 		{"negative_off_peak_price", `{"m":{"rows":[{"resolution":"1080p","normal_price":0.75,"off_peak_price":-0.1}]}}`},
+		{"zero_off_peak_price", `{"m":{"rows":[{"resolution":"1080p","normal_price":0.75,"off_peak_price":0}]}}`},
 		{"malformed_json", `not-json`},
 	}
 	for _, tt := range tests {

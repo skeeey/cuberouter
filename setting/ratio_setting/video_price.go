@@ -31,7 +31,7 @@ func UpdateVideoPriceByJSONString(jsonStr string) error {
 			return fmt.Errorf("video price table for %s is empty", model)
 		}
 		for _, row := range table.Rows {
-			if strings.TrimSpace(row.Resolution) == "" || row.NormalPrice <= 0 || row.OffPeakPrice < 0 {
+			if strings.TrimSpace(row.Resolution) == "" || row.NormalPrice <= 0 || row.OffPeakPrice <= 0 {
 				return fmt.Errorf("invalid video price row for %s: %+v", model, row)
 			}
 		}
