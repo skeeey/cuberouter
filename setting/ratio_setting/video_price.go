@@ -3,6 +3,7 @@ package ratio_setting
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -70,7 +71,10 @@ type OffPeakWindow struct {
 
 const defaultOffPeakWindow = `{"start_hour":22,"end_hour":8,"timezone":"Asia/Shanghai"}`
 
-var offPeakWindow = OffPeakWindow{StartHour: 22, EndHour: 8, Timezone: "Asia/Shanghai"}
+var (
+	offPeakWindowMu sync.RWMutex
+	offPeakWindow   = OffPeakWindow{StartHour: 22, EndHour: 8, Timezone: "Asia/Shanghai"}
+)
 
 func UpdateOffPeakWindowByJSONString(jsonStr string) error {
 	var w OffPeakWindow
@@ -83,11 +87,17 @@ func UpdateOffPeakWindowByJSONString(jsonStr string) error {
 	if w.Timezone == "" {
 		w.Timezone = "Asia/Shanghai"
 	}
+	offPeakWindowMu.Lock()
 	offPeakWindow = w
+	offPeakWindowMu.Unlock()
 	return nil
 }
 
-func GetOffPeakWindow() OffPeakWindow { return offPeakWindow }
+func GetOffPeakWindow() OffPeakWindow {
+	offPeakWindowMu.RLock()
+	defer offPeakWindowMu.RUnlock()
+	return offPeakWindow
+}
 
 // IsOffPeakHour 半开区间 [start, end);start == end 视为无错峰;跨零点合法。
 func IsOffPeakHour(now time.Time, w OffPeakWindow) bool {
