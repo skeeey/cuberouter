@@ -423,11 +423,87 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+// 视频生成示例:提交 POST /v1/video/generations,轮询 GET /v1/video/generations/{task_id}。
+// 请求参数 model / prompt / size(分辨率)/ duration(秒)与网关任务 API 一致。
+function buildVideoSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+  const prompt = 'A serene koi pond at sunset, ukiyo-e style.'
+  const body = JSON.stringify(
+    { model: ctx.modelName, prompt, size: '720p', duration: 5 },
+    null,
+    2
+  )
+
+  if (lang === 'curl') {
+    return [
+      '# Submit a video generation task',
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      '',
+      '# Poll task status (returns the video URL when completed):',
+      `# curl ${ctx.baseUrl}/v1/video/generations/<task_id> \\`,
+      `#   -H "Authorization: Bearer $${ctx.apiKeyEnv}"`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'import requests',
+      '',
+      `resp = requests.post(`,
+      `    "${url}",`,
+      `    headers={"Authorization": "Bearer <YOUR_API_KEY>"},`,
+      `    json={"model": "${ctx.modelName}", "prompt": "${prompt}", "size": "720p", "duration": 5},`,
+      `)`,
+      `task_id = resp.json()["task_id"]`,
+      `print(task_id)  # poll: GET ${ctx.baseUrl}/v1/video/generations/{task_id}`,
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `const resp = await fetch('${url}', {`,
+      `  method: 'POST',`,
+      `  headers: {`,
+      `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+      `    'Content-Type': 'application/json',`,
+      `  },`,
+      `  body: JSON.stringify({`,
+      `    model: '${ctx.modelName}',`,
+      `    prompt: '${prompt}',`,
+      `    size: '720p',`,
+      `    duration: 5,`,
+      `  }),`,
+      `})`,
+      `const data = await resp.json()`,
+      `console.log(data.task_id)  // poll: GET ${ctx.baseUrl}/v1/video/generations/{task_id}`,
+    ].join('\n')
+  }
+  return [
+    `const resp = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type': 'application/json',`,
+    `  },`,
+    `  body: JSON.stringify({`,
+    `    model: '${ctx.modelName}',`,
+    `    prompt: '${prompt}',`,
+    `    size: '720p',`,
+    `    duration: 5,`,
+    `  }),`,
+    `})`,
+    `const data = await resp.json()`,
+    `console.log(data.task_id)  // poll: GET ${ctx.baseUrl}/v1/video/generations/{task_id}`,
+  ].join('\n')
+}
+
 function buildSample(
   lang: Lang,
   endpointType: string,
   ctx: SampleContext
 ): string {
+  if (endpointType === 'video') return buildVideoSample(lang, ctx)
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
   if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
@@ -461,6 +537,10 @@ function CodeSamplesSection(props: {
   }, [status])
 
   const endpoints = useMemo(() => {
+    if (props.model.video_prices) {
+      // 视频按秒模型走 OpenAI 兼容视频端点,示例固定为 /v1/video/generations
+      return [{ type: 'video', path: '/v1/video/generations', method: 'POST' }]
+    }
     const types = props.model.supported_endpoint_types || []
     return types
       .map((type) => {

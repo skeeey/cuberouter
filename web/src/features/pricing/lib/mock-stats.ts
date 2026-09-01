@@ -742,6 +742,12 @@ const VIDEO_PARAMS: SupportedParameter[] = [
     descriptionKey: 'Text description of the desired video',
   },
   {
+    name: 'size',
+    type: 'string',
+    defaultValue: '720p',
+    descriptionKey: 'Output resolution',
+  },
+  {
     name: 'duration',
     type: 'integer',
     range: '1 ~ 60',
@@ -772,6 +778,8 @@ type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
  * need to distinguish them so the request-parameter table is accurate.
  */
 function apiCategoryOf(model: PricingModel): ApiCategory {
+  // 配置了视频价格表的模型按视频 API 展示(参数表 + 速率限制按视频口径)
+  if (model.video_prices) return 'video'
   const profile = PROFILE_BY_NAME(model.model_name)
   if (profile === 'embedding' || profile === 'reasoning') return profile
   if (profile === 'image') {
