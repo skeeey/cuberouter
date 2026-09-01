@@ -20,6 +20,7 @@ import (
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/pkg/errors"
 )
@@ -85,62 +86,26 @@ type TaskAdaptor struct {
 // Billing — 时长 × 分辨率 × 错峰时段
 // ============================
 
-// 分辨率系数以 1080p 正常价为锚点(基础价在「模型价格」按 1080p 元/秒 配置),
-// 其余分辨率取相对系数;不在表内的模型/分辨率按 1.0(1080p 档)保守计费。
-var viduResolutionRatios = map[string]map[string]float64{
-	"viduq3-pro": {
-		"1080p": 1.0,
-		"720p":  5.0 / 6.0, // 0.625 / 0.75
-		"540p":  3.0 / 8.0, // 0.28125 / 0.75
-	},
-	"viduq3-turbo": {
-		"1080p": 1.0,
-		"720p":  12.0 / 13.0, // 0.375 / 0.40625
-		"540p":  7.0 / 13.0,  // 0.21875 / 0.40625
-	},
-}
-
-// 错峰系数 = 错峰价 / 正常价,按 (模型, 分辨率) 分别定义(不是统一半价:
-// pro 540p 为 5/9,turbo 1080p 为 7/13、540p 为 4/7)。
-var viduOffPeakRatios = map[string]map[string]float64{
-	"viduq3-pro": {
-		"1080p": 0.5,       // 0.375 / 0.75
-		"720p":  0.5,       // 0.3125 / 0.625
-		"540p":  5.0 / 9.0, // 0.15625 / 0.28125
-	},
-	"viduq3-turbo": {
-		"1080p": 7.0 / 13.0, // 0.21875 / 0.40625
-		"720p":  0.5,        // 0.1875 / 0.375
-		"540p":  4.0 / 7.0,  // 0.125 / 0.21875
-	},
-}
-
 const (
 	viduDefaultDurationSeconds = 5      // 请求未传时长时的计费/上游缺省
 	viduDefaultResolution      = "720p" // 同上,与 convertToRequestPayload 保持一致
-	viduOffPeakTimeZone        = "Asia/Shanghai"
-	viduOffPeakStartHour       = 22 // 错峰时段:北京时间 22:00
-	viduOffPeakEndHour         = 8  // 至次日 08:00
 )
 
-// isViduOffPeakHour 判断北京时间是否处于错峰时段 [22:00, 次日 08:00)。
+// isViduOffPeakHour 判断当前时刻是否处于管理员配置的错峰窗口。
 // 独立成纯函数,便于用固定时刻做边界测试。
 func isViduOffPeakHour(now time.Time) bool {
-	loc, err := time.LoadLocation(viduOffPeakTimeZone)
-	if err != nil {
-		return false
-	}
-	hour := now.In(loc).Hour()
-	return hour >= viduOffPeakStartHour || hour < viduOffPeakEndHour
+	return ratio_setting.IsOffPeakHour(now, ratio_setting.GetOffPeakWindow())
 }
 
 // computeViduRatios 把任务请求(及提交响应的回显)折算为计费系数:
-// seconds(时长) × size(分辨率) × time(错峰,系数按模型×分辨率查表)。
+// seconds(时长) × size(分辨率) × time(错峰)。
 // echoed 携带实际值(上游可能调整时长/分辨率)时以回显为准,否则用请求值;
 // 请求缺省 viduDefaultDurationSeconds / viduDefaultResolution。
 // duration 是用户可控的计费乘子,一律按 MaxTaskDurationSeconds 饱和,
 // 防止 metadata 等旁路绕过请求校验造成超扣/溢出。
-// 不在系数表内的模型/分辨率按 1.0(1080p 正常档)保守计费,错峰时段也不打折。
+// 分辨率/错峰系数从管理员配置的视频价格表推导(锚点 = 最高 normal 价,
+// size = NormalPrice / anchor,time = OffPeakPrice / NormalPrice);
+// 无表/未知模型/未知分辨率 → 1.0 保守计费,错峰时段也不打折。
 func computeViduRatios(req relaycommon.TaskSubmitReq, model string, echoed *responsePayload, now time.Time) map[string]float64 {
 	ratios := make(map[string]float64, 3)
 
@@ -164,14 +129,25 @@ func computeViduRatios(req relaycommon.TaskSubmitReq, model string, echoed *resp
 	if resolution == "" {
 		resolution = viduDefaultResolution
 	}
+	// 分辨率/错峰系数从管理员配置的视频价格表推导;无表/未知模型/未知分辨率 → 1.0 保守计费
 	normalized := strings.ToLower(resolution)
-	if sizeRatio := viduResolutionRatios[model][normalized]; sizeRatio > 0 && sizeRatio != 1.0 {
-		ratios["size"] = sizeRatio
-	}
-
-	if isViduOffPeakHour(now) {
-		if offPeakRatio := viduOffPeakRatios[model][normalized]; offPeakRatio > 0 && offPeakRatio != 1.0 {
-			ratios["time"] = offPeakRatio
+	if table, ok := ratio_setting.GetVideoPrice(model); ok {
+		anchor := ratio_setting.VideoPriceAnchor(table)
+		if anchor > 0 {
+			for _, row := range table.Rows {
+				if strings.ToLower(row.Resolution) != normalized {
+					continue
+				}
+				if sizeRatio := row.NormalPrice / anchor; sizeRatio > 0 && sizeRatio != 1.0 {
+					ratios["size"] = sizeRatio
+				}
+				if isViduOffPeakHour(now) && row.OffPeakPrice > 0 {
+					if timeRatio := row.OffPeakPrice / row.NormalPrice; timeRatio > 0 && timeRatio != 1.0 {
+						ratios["time"] = timeRatio
+					}
+				}
+				break
+			}
 		}
 	}
 	return ratios

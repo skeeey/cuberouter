@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,23 @@ func beijing(layout, value string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+// seedVideoPrice 注入与硬编码时代一致的管理员视频价格表(12 格全部对应),
+// 使配置驱动的推导结果与既有期望逐格一致。
+func seedVideoPrice(t *testing.T) {
+	t.Helper()
+	err := ratio_setting.UpdateVideoPriceByJSONString(`{
+  "viduq3-pro": {"rows": [
+    {"resolution":"1080p","normal_price":0.75,"off_peak_price":0.375},
+    {"resolution":"720p","normal_price":0.625,"off_peak_price":0.3125},
+    {"resolution":"540p","normal_price":0.28125,"off_peak_price":0.15625}]},
+  "viduq3-turbo": {"rows": [
+    {"resolution":"1080p","normal_price":0.40625,"off_peak_price":0.21875},
+    {"resolution":"720p","normal_price":0.375,"off_peak_price":0.1875},
+    {"resolution":"540p","normal_price":0.21875,"off_peak_price":0.125}]}
+}`)
+	require.NoError(t, err)
 }
 
 func TestIsViduOffPeakHour(t *testing.T) {
@@ -49,7 +67,22 @@ func TestIsViduOffPeakHour(t *testing.T) {
 	}
 }
 
+func TestEstimateBillingNoVideoTableReturnsSecondsOnly(t *testing.T) {
+	// 模型未配置视频价格表时,EstimateBilling 只返回时长系数(退化纯按次),
+	// 无 size/time。该用例必须跑在任何 seedVideoPrice 之前
+	// (ratio_setting.videoPriceMap 是包级全局状态,测试间共享)。
+	c, _ := gin.CreateTestContext(nil)
+	req := relaycommon.TaskSubmitReq{Duration: 5, Size: "540p"}
+	c.Set("task_request", req)
+
+	a := &TaskAdaptor{}
+	info := &relaycommon.RelayInfo{OriginModelName: "viduq3-pro-fast"}
+	got := a.EstimateBilling(c, info)
+	require.Equal(t, map[string]float64{"seconds": 5}, got)
+}
+
 func TestComputeViduRatios(t *testing.T) {
+	seedVideoPrice(t)
 	peak := beijing("2006-01-02 15:04:05", "2026-09-01 12:00:00")
 	offpeak := beijing("2006-01-02 15:04:05", "2026-09-01 23:00:00")
 
@@ -132,7 +165,7 @@ func TestComputeViduRatios(t *testing.T) {
 			want:  map[string]float64{"seconds": 5},
 		},
 		{
-			name:  "unknown_model_conservative_1",
+			name:  "unconfigured_model_no_ratios",
 			req:   relaycommon.TaskSubmitReq{Duration: 5, Size: "540p"},
 			model: "viduq3-pro-fast",
 			now:   peak,
@@ -207,6 +240,7 @@ func TestComputeViduRatios(t *testing.T) {
 }
 
 func TestEstimateBillingWiring(t *testing.T) {
+	seedVideoPrice(t)
 	c, _ := gin.CreateTestContext(nil)
 	req := relaycommon.TaskSubmitReq{Duration: 5, Size: "540p"}
 	c.Set("task_request", req)
@@ -229,6 +263,7 @@ func TestEstimateBillingMissingRequestReturnsNil(t *testing.T) {
 }
 
 func TestAdjustBillingOnSubmit(t *testing.T) {
+	seedVideoPrice(t)
 	// 与实现同源的时间快照:错峰时段系数随 now 走,断言两侧始终一致
 	now := time.Now()
 	model := "viduq3-pro"
