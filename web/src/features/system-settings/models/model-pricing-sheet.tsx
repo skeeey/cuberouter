@@ -61,14 +61,17 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { VideoPriceTable } from '@/features/pricing/types'
 import { cn } from '@/lib/utils'
 
 import {
   EMPTY_LANE_ENABLED,
   EMPTY_LANE_PRICES,
+  buildPricingSubmitData,
   buildPreviewRows,
   createInitialLaneState,
   createModelPricingSchema,
+  getInitialPricingMode,
   hasValue,
   laneConfigs,
   numericDraftRegex,
@@ -82,6 +85,7 @@ import {
 import { PriceInput, PriceLane } from './model-pricing-inputs'
 import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
+import { VideoPriceEditor } from './video-price-editor'
 
 export type { ModelRatioData } from './model-pricing-core'
 
@@ -155,6 +159,9 @@ export const ModelPricingEditorPanel = forwardRef<
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [videoPriceTable, setVideoPriceTable] = useState<VideoPriceTable>({
+    rows: [],
+  })
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -188,15 +195,14 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      setPricingMode(getInitialPricingMode(editData))
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
+      setVideoPriceTable(
+        editData.videoPrices && editData.videoPrices.rows.length > 0
+          ? editData.videoPrices
+          : { rows: [] }
+      )
     } else {
       form.reset({
         name: '',
@@ -212,6 +218,7 @@ export const ModelPricingEditorPanel = forwardRef<
       setPricingMode('per-token')
       setBillingExpr('')
       setRequestRuleExpr('')
+      setVideoPriceTable({ rows: [] })
     }
 
     setPromptPrice(nextLaneState.promptPrice)
@@ -351,7 +358,8 @@ export const ModelPricingEditorPanel = forwardRef<
         promptPrice,
         lanePrices,
         laneEnabled,
-        t
+        t,
+        videoPriceTable
       ),
     [
       billingExpr,
@@ -361,6 +369,7 @@ export const ModelPricingEditorPanel = forwardRef<
       promptPrice,
       requestRuleExpr,
       t,
+      videoPriceTable,
       watchedValues,
     ]
   )
@@ -439,28 +448,13 @@ export const ModelPricingEditorPanel = forwardRef<
   }, [form, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
   const buildSubmitData = useCallback(
-    (values: ModelPricingFormValues) => {
-      const data: ModelRatioData = {
-        name: values.name.trim(),
-        billingMode: pricingMode,
-        price: values.price || '',
-        ratio: values.ratio || '',
-        cacheRatio: values.cacheRatio || '',
-        createCacheRatio: values.createCacheRatio || '',
-        completionRatio: values.completionRatio || '',
-        imageRatio: values.imageRatio || '',
-        audioRatio: values.audioRatio || '',
-        audioCompletionRatio: values.audioCompletionRatio || '',
-      }
-
-      if (pricingMode === 'tiered_expr') {
-        data.billingExpr = billingExpr
-        data.requestRuleExpr = requestRuleExpr
-      }
-
-      return data
-    },
-    [billingExpr, pricingMode, requestRuleExpr]
+    (values: ModelPricingFormValues) =>
+      buildPricingSubmitData(values, pricingMode, {
+        billingExpr,
+        requestRuleExpr,
+        videoPrices: videoPriceTable,
+      }),
+    [billingExpr, pricingMode, requestRuleExpr, videoPriceTable]
   )
 
   useImperativeHandle(
@@ -544,7 +538,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
-                  <TabsList className='grid w-full grid-cols-3'>
+                  <TabsList className='grid w-full grid-cols-4'>
                     <TabsTrigger value='per-token'>
                       {t('Per-token')}
                     </TabsTrigger>
@@ -553,6 +547,9 @@ export const ModelPricingEditorPanel = forwardRef<
                     </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
+                    </TabsTrigger>
+                    <TabsTrigger value='video-per-second'>
+                      {t('Video per second')}
                     </TabsTrigger>
                   </TabsList>
 
@@ -648,6 +645,17 @@ export const ModelPricingEditorPanel = forwardRef<
                         requestRuleExpr={requestRuleExpr}
                         onBillingExprChange={setBillingExpr}
                         onRequestRuleExprChange={setRequestRuleExpr}
+                      />
+                    </FieldGroup>
+                  </TabsContent>
+
+                  <TabsContent value='video-per-second' className='pt-0'>
+                    <FieldGroup className='gap-5'>
+                      <VideoPriceEditor
+                        key={editorReloadToken}
+                        modelName={watchedValues.name}
+                        table={videoPriceTable}
+                        onChange={setVideoPriceTable}
                       />
                     </FieldGroup>
                   </TabsContent>
