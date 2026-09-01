@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import type { OffPeakWindow, VideoPrice } from '@/features/pricing/types'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 
 export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
@@ -45,6 +46,16 @@ export interface SystemConfig {
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
   currency: CurrencyConfig
+  /** Per-model per-second video price tables (admin option `VideoPrice`) */
+  videoPrice: VideoPrice
+  /** Off-peak billing window (admin option `OffPeakWindow`) */
+  offPeakWindow: OffPeakWindow
+}
+
+export const DEFAULT_OFF_PEAK_WINDOW: OffPeakWindow = {
+  start_hour: 22,
+  end_hour: 8,
+  timezone: 'Asia/Shanghai',
 }
 
 export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
@@ -76,6 +87,8 @@ export const useSystemConfigStore = create<SystemConfigState>()(
         systemName: DEFAULT_SYSTEM_NAME,
         logo: DEFAULT_LOGO,
         currency: { ...DEFAULT_CURRENCY_CONFIG },
+        videoPrice: {},
+        offPeakWindow: { ...DEFAULT_OFF_PEAK_WINDOW },
       },
       loading: true,
       loadedLogoUrl: DEFAULT_LOGO,
