@@ -74,5 +74,6 @@ export function usePricingData() {
     refetch,
     priceRate,
     usdExchangeRate,
+    offPeakWindow: data?.data?.off_peak_window,
   }
 }

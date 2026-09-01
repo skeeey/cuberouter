@@ -71,6 +71,7 @@ import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
+  OffPeakWindow,
   PriceType,
   PricingModel,
   TokenUnit,
@@ -79,6 +80,7 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { VideoPriceTable } from './video-price-table'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -572,8 +574,20 @@ function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
+  offPeakWindow?: OffPeakWindow
 }) {
   const { t } = useTranslation()
+  if (props.model.video_prices) {
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <VideoPriceTable
+          table={props.model.video_prices}
+          offPeakWindow={props.offPeakWindow}
+        />
+      </section>
+    )
+  }
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
@@ -1135,6 +1149,7 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  offPeakWindow?: OffPeakWindow
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
@@ -1177,6 +1192,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              offPeakWindow={props.offPeakWindow}
             />
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
@@ -1259,6 +1275,7 @@ export function ModelDetails() {
     isLoading,
     priceRate,
     usdExchangeRate,
+    offPeakWindow,
   } = usePricingData()
 
   const tokenUnit: TokenUnit =
@@ -1344,6 +1361,7 @@ export function ModelDetails() {
               { path?: string; method?: string }
             >) || {}
           }
+          offPeakWindow={offPeakWindow}
         />
       </div>
     </PublicLayout>

@@ -32,9 +32,10 @@ import {
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { OffPeakWindow, PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { VideoPriceTable } from './video-price-table'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -45,6 +46,7 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  offPeakWindow?: OffPeakWindow
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -92,7 +94,18 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   }
 
   let priceSummary: ReactNode
-  if (dynamicSummary) {
+  if (props.model.video_prices) {
+    priceSummary = (
+      <div className='w-full min-w-0'>
+        <VideoPriceTable
+          table={props.model.video_prices}
+          offPeakWindow={props.offPeakWindow}
+          className='gap-y-1'
+          tableClassName='text-xs'
+        />
+      </div>
+    )
+  } else if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       priceSummary = (
         <span className='min-w-0'>

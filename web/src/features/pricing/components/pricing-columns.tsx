@@ -40,6 +40,7 @@ import {
   formatRequestPrice,
   stripTrailingZeros,
 } from '../lib/price'
+import { formatVideoPrice } from '../lib/video-price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 
@@ -114,6 +115,20 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        const videoPrices = model.video_prices
+        if (videoPrices && videoPrices.rows.length > 0) {
+          return (
+            <div className='max-w-full min-w-0'>
+              <span className='font-mono text-sm tabular-nums'>
+                ¥{formatVideoPrice(videoPrices.rows[0].normal_price)}/s
+              </span>
+              <div className='text-muted-foreground/50 text-[10px]'>
+                {t('Video per second')}
+              </div>
+            </div>
+          )
+        }
+
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,

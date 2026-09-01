@@ -9,6 +9,7 @@
   "CubeRouter <noreply@example.com>": "CubeRouter <noreply@example.com>",
   "Off-peak price (¥/s)": "Off-peak price (¥/s)",
   "Off-peak window": "Off-peak window",
+  "Off-peak window: {{start}} - {{end}}": "Off-peak window: {{start}} - {{end}}",
   "Resolution": "Resolution",
   "Start and end hours are equal, so off-peak pricing is disabled.": "Start and end hours are equal, so off-peak pricing is disabled.",
   "Start hour": "Start hour",
