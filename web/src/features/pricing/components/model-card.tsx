@@ -32,10 +32,10 @@ import {
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
+import { formatVideoPrice, getOffPeakWindowLabel } from '../lib/video-price'
 import type { OffPeakWindow, PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
-import { VideoPriceTable } from './video-price-table'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -95,14 +95,38 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
   let priceSummary: ReactNode
   if (props.model.video_prices) {
+    // 卡片左侧价格区很窄(约 180px),三列表格会横向溢出被截断,
+    // 这里按分辨率逐行堆叠:分辨率 + ¥正常/¥错峰,保持 177px 内可读。
+    const { rows } = props.model.video_prices
+    const windowLabel = getOffPeakWindowLabel(props.offPeakWindow)
     priceSummary = (
       <div className='w-full min-w-0'>
-        <VideoPriceTable
-          table={props.model.video_prices}
-          offPeakWindow={props.offPeakWindow}
-          className='gap-y-1'
-          tableClassName='text-xs'
-        />
+        <div className='space-y-1'>
+          {rows.map((row) => (
+            <div
+              key={row.resolution || row.normal_price}
+              className='flex items-baseline justify-between gap-x-2 whitespace-nowrap text-xs'
+            >
+              <span className='text-muted-foreground'>{row.resolution}</span>
+              <span className='text-foreground font-mono font-semibold tabular-nums'>
+                ¥{formatVideoPrice(row.normal_price)}
+                <span className='text-muted-foreground/70'>
+                  {' '}/ ¥{formatVideoPrice(row.off_peak_price)}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+        {windowLabel && (
+          <p className='text-muted-foreground/70 mt-1 text-[11px] leading-relaxed'>
+            {t('Off-peak window: {{start}} - {{end}}', {
+              start: windowLabel.start,
+              end: windowLabel.crossesMidnight
+                ? `${t('Next day')} ${windowLabel.end}`
+                : windowLabel.end,
+            })}
+          </p>
+        )}
       </div>
     )
   } else if (dynamicSummary) {
