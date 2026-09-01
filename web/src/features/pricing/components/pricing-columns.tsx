@@ -387,7 +387,10 @@ export function usePricingColumns(
       accessorKey: 'supported_endpoint_types',
       header: t('Endpoints'),
       cell: ({ row }) => {
-        const endpoints = row.original.supported_endpoint_types || []
+        // 视频按秒模型显示「视频」端点标签(走 OpenAI 兼容视频端点)
+        const endpoints = row.original.video_prices
+          ? [t('Video')]
+          : row.original.supported_endpoint_types || []
         return (
           <BadgeListCell
             items={endpoints.map((ep) => (
