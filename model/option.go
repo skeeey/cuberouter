@@ -20,6 +20,13 @@ type Option struct {
 	Value string `json:"value"`
 }
 
+// 视频按秒定价相关 option 的默认值,与 ratio_setting 内默认状态一致;
+// 数据库中存在对应 option 时以数据库为准(loadOptionsFromDatabase 覆盖)。
+const (
+	defaultVideoPriceOption    = "{}"
+	defaultOffPeakWindowOption = `{"start_hour":22,"end_hour":8,"timezone":"Asia/Shanghai"}`
+)
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
@@ -141,6 +148,8 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
+	common.OptionMap["VideoPrice"] = defaultVideoPriceOption
+	common.OptionMap["OffPeakWindow"] = defaultOffPeakWindowOption
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
@@ -542,6 +551,10 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateCompletionRatioByJSONString(value)
 	case "ModelPrice":
 		err = ratio_setting.UpdateModelPriceByJSONString(value)
+	case "VideoPrice":
+		err = ratio_setting.UpdateVideoPriceByJSONString(value)
+	case "OffPeakWindow":
+		err = ratio_setting.UpdateOffPeakWindowByJSONString(value)
 	case "CacheRatio":
 		err = ratio_setting.UpdateCacheRatioByJSONString(value)
 	case "CreateCacheRatio":
