@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,9 +75,144 @@ type creation struct {
 // ============================
 
 type TaskAdaptor struct {
-	taskcommon.BaseBilling
 	ChannelType int
 	baseURL     string
+	// req 缓存提交前的任务请求,供 AdjustBillingOnSubmit 折算上游回显的实际参数。
+	req *relaycommon.TaskSubmitReq
+}
+
+// ============================
+// Billing — 时长 × 分辨率 × 错峰时段
+// ============================
+
+// 分辨率系数以 1080p 正常价为锚点(基础价在「模型价格」按 1080p 元/秒 配置),
+// 其余分辨率取相对系数;不在表内的模型/分辨率按 1.0(1080p 档)保守计费。
+var viduResolutionRatios = map[string]map[string]float64{
+	"viduq3-pro": {
+		"1080p": 1.0,
+		"720p":  5.0 / 6.0, // 0.625 / 0.75
+		"540p":  3.0 / 8.0, // 0.28125 / 0.75
+	},
+	"viduq3-turbo": {
+		"1080p": 1.0,
+		"720p":  12.0 / 13.0, // 0.375 / 0.40625
+		"540p":  7.0 / 13.0,  // 0.21875 / 0.40625
+	},
+}
+
+// 错峰系数 = 错峰价 / 正常价,按 (模型, 分辨率) 分别定义(不是统一半价:
+// pro 540p 为 5/9,turbo 1080p 为 7/13、540p 为 4/7)。
+var viduOffPeakRatios = map[string]map[string]float64{
+	"viduq3-pro": {
+		"1080p": 0.5,       // 0.375 / 0.75
+		"720p":  0.5,       // 0.3125 / 0.625
+		"540p":  5.0 / 9.0, // 0.15625 / 0.28125
+	},
+	"viduq3-turbo": {
+		"1080p": 7.0 / 13.0, // 0.21875 / 0.40625
+		"720p":  0.5,        // 0.1875 / 0.375
+		"540p":  4.0 / 7.0,  // 0.125 / 0.21875
+	},
+}
+
+const (
+	viduDefaultDurationSeconds = 5      // 请求未传时长时的计费/上游缺省
+	viduDefaultResolution      = "720p" // 同上,与 convertToRequestPayload 保持一致
+	viduOffPeakTimeZone        = "Asia/Shanghai"
+	viduOffPeakStartHour       = 22 // 错峰时段:北京时间 22:00
+	viduOffPeakEndHour         = 8  // 至次日 08:00
+)
+
+// isViduOffPeakHour 判断北京时间是否处于错峰时段 [22:00, 次日 08:00)。
+// 独立成纯函数,便于用固定时刻做边界测试。
+func isViduOffPeakHour(now time.Time) bool {
+	loc, err := time.LoadLocation(viduOffPeakTimeZone)
+	if err != nil {
+		return false
+	}
+	hour := now.In(loc).Hour()
+	return hour >= viduOffPeakStartHour || hour < viduOffPeakEndHour
+}
+
+// computeViduRatios 把任务请求(及提交响应的回显)折算为计费系数:
+// seconds(时长) × size(分辨率) × time(错峰,系数按模型×分辨率查表)。
+// echoed 携带实际值(上游可能调整时长/分辨率)时以回显为准,否则用请求值;
+// 请求缺省 viduDefaultDurationSeconds / viduDefaultResolution。
+// duration 是用户可控的计费乘子,一律按 MaxTaskDurationSeconds 饱和,
+// 防止 metadata 等旁路绕过请求校验造成超扣/溢出。
+// 不在系数表内的模型/分辨率按 1.0(1080p 正常档)保守计费,错峰时段也不打折。
+func computeViduRatios(req relaycommon.TaskSubmitReq, model string, echoed *responsePayload, now time.Time) map[string]float64 {
+	ratios := make(map[string]float64, 3)
+
+	duration := req.Duration
+	if echoed != nil && echoed.Duration > 0 {
+		duration = echoed.Duration
+	} else if duration <= 0 {
+		if seconds, err := strconv.Atoi(strings.TrimSpace(req.Seconds)); err == nil {
+			duration = seconds
+		}
+	}
+	if duration <= 0 {
+		duration = viduDefaultDurationSeconds
+	}
+	ratios["seconds"] = float64(min(duration, relaycommon.MaxTaskDurationSeconds))
+
+	resolution := strings.TrimSpace(req.Size)
+	if echoed != nil && strings.TrimSpace(echoed.Resolution) != "" {
+		resolution = strings.TrimSpace(echoed.Resolution)
+	}
+	if resolution == "" {
+		resolution = viduDefaultResolution
+	}
+	normalized := strings.ToLower(resolution)
+	if sizeRatio := viduResolutionRatios[model][normalized]; sizeRatio > 0 && sizeRatio != 1.0 {
+		ratios["size"] = sizeRatio
+	}
+
+	if isViduOffPeakHour(now) {
+		if offPeakRatio := viduOffPeakRatios[model][normalized]; offPeakRatio > 0 && offPeakRatio != 1.0 {
+			ratios["time"] = offPeakRatio
+		}
+	}
+	return ratios
+}
+
+// EstimateBilling 在预扣前把用户请求折算为计费系数(时长/分辨率/错峰),
+// 叠加在模型基础价(1080p 正常价)之上。
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	taskReq, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+	a.req = &taskReq
+	return computeViduRatios(taskReq, info.OriginModelName, nil, time.Now())
+}
+
+// AdjustBillingOnSubmit 用提交响应回显的实际时长/分辨率结算差额。
+// 回显为空(上游不返回)时保持预扣不变;与预扣一致时不触发重算。
+func (a *TaskAdaptor) AdjustBillingOnSubmit(info *relaycommon.RelayInfo, taskData []byte) map[string]float64 {
+	if a.req == nil || len(taskData) == 0 {
+		return nil
+	}
+	var echoed responsePayload
+	if err := common.Unmarshal(taskData, &echoed); err != nil {
+		return nil
+	}
+	if echoed.Duration <= 0 && strings.TrimSpace(echoed.Resolution) == "" {
+		return nil
+	}
+	ratios := computeViduRatios(*a.req, info.OriginModelName, &echoed, time.Now())
+	if reflect.DeepEqual(ratios, info.PriceData.OtherRatios()) {
+		return nil
+	}
+	return ratios
+}
+
+// AdjustBillingOnComplete 保持预扣金额:实际参数已在提交时按回显结算,
+// 轮询结果不含时长/分辨率;且配置了模型价格的任务按次计费(PerCallBilling),
+// 完成阶段的差额结算本身会被跳过。
+func (a *TaskAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -229,8 +366,8 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		Model:             taskcommon.DefaultString(info.UpstreamModelName, "viduq1"),
 		Images:            req.Images,
 		Prompt:            req.Prompt,
-		Duration:          taskcommon.DefaultInt(req.Duration, 5),
-		Resolution:        taskcommon.DefaultString(req.Size, "1080p"),
+		Duration:          taskcommon.DefaultInt(req.Duration, viduDefaultDurationSeconds),
+		Resolution:        taskcommon.DefaultString(req.Size, viduDefaultResolution),
 		MovementAmplitude: "auto",
 		Bgm:               false,
 	}
