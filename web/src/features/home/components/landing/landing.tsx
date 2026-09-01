@@ -359,7 +359,7 @@ export function Landing() {
           <div className='cr-footer__grid'>
             <div>
               <div className='cr-footer__brand'>
-                <img src='/head.png' alt='CubeRouter' />
+                <img src='/head.png' alt='CubeRouter' className='dark:brightness-0 dark:invert' />
               </div>
               <p className='cr-footer__desc'>{t('oneSuanova is a leading AI service provider. Through its proprietary Token-as-a-Service (TaaS) platform, it provides stable and efficient AI Token cloud services for enterprises and institutions across industries. The brand is wholly owned and operated by Suanova Technology, dedicated to building high-standard, scalable next-generation AI computing infrastructure.')}</p>
             </div>
@@ -422,8 +422,11 @@ export function Landing() {
           </div>
 
           <div className='cr-footer__bottom'>
+            {/* Single consolidated copyright. The project is AGPL-3.0, so the
+                legacy "All Rights Reserved" phrase (which contradicts the
+                rights the license grants) is intentionally omitted; upstream
+                credits live on the About page. */}
             <span>{t('© 2026 CubeRouter · Suanova Technology Ltd')}</span>
-            <span>{t('All Rights Reserved')}</span>
           </div>
         </div>
       </footer>

@@ -11,15 +11,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -28,14 +27,28 @@ import (
 )
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	PasswordEncrypted string `json:"password_encrypted"`
+	EncryptionKeyID   string `json:"encryption_key_id"`
 }
 
 var (
 	errUserPasswordUnset    = errors.New("user password is not set")
 	errOriginalPasswordFail = errors.New("original password is incorrect")
 )
+
+func GetPasswordEncryptionKey(c *gin.Context) {
+	keyID, publicKey := common.PasswordEncryptionPublicKey()
+	if keyID == "" || publicKey == "" {
+		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"kid":        keyID,
+		"public_key": publicKey,
+	})
+}
 
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
@@ -50,6 +63,13 @@ func Login(c *gin.Context) {
 	}
 	username := loginRequest.Username
 	password := loginRequest.Password
+	if loginRequest.PasswordEncrypted != "" {
+		password, err = common.DecryptPassword(loginRequest.PasswordEncrypted, loginRequest.EncryptionKeyID)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+			return
+		}
+	}
 	if username == "" || password == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -202,7 +222,6 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		},
 	})
 }
-
 func Register(c *gin.Context) {
 	if !common.RegisterEnabled {
 		common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
@@ -225,6 +244,10 @@ func Register(c *gin.Context) {
 		return
 	}
 	if err := common.Validate.Struct(&user); err != nil {
+		if key := common.GetValidationI18nKey(err); key != "" {
+			common.ApiErrorI18n(c, key)
+			return
+		}
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
@@ -270,16 +293,31 @@ func Register(c *gin.Context) {
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
-	if common.EmailVerificationEnabled {
-		cleanUser.Email = user.Email
-	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	// 通过邀请码注册时，新用户的分组继承邀请人所属分组。继承与插入在同一
+	// 事务中完成，并在事务内锁定邀请人行（GetUserGroupByIdTx）：与
+	// UpdateUser 的改分组守卫互斥，避免并发产生邀请人与下级分组不一致。
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if inviterId > 0 {
+			inviterGroup, err := model.GetUserGroupByIdTx(tx, inviterId)
+			if err != nil {
+				return err
+			}
+			if inviterGroup != "" {
+				cleanUser.Group = inviterGroup
+			}
+		}
+		return cleanUser.InsertWithTx(tx, inviterId)
+	}); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 			return
 		}
 		common.ApiError(c, err)
 		return
+	}
+	cleanUser.FinishInsert(inviterId)
+	if common.EmailVerificationEnabled {
+		cleanUser.Email = user.Email
 	}
 
 	// 获取插入后的用户ID
@@ -341,6 +379,9 @@ func GetAllUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
+	for _, u := range users {
+		u.Phone = common.MaskPhone(u.Phone)
+	}
 	pageInfo.SetItems(users)
 
 	common.ApiSuccess(c, pageInfo)
@@ -371,6 +412,9 @@ func SearchUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
+	for _, u := range users {
+		u.Phone = common.MaskPhone(u.Phone)
+	}
 	pageInfo.SetItems(users)
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -404,14 +448,8 @@ func GetUser(c *gin.Context) {
 	})
 	return
 }
-
 func GenerateAccessToken(c *gin.Context) {
 	id := c.GetInt("id")
-	user, err := model.GetUserById(id, true)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
 	// get rand int 28-32
 	randI := common.GetRandomInt(4)
 	key, err := common.GenerateRandomKey(29 + randI)
@@ -420,14 +458,12 @@ func GenerateAccessToken(c *gin.Context) {
 		common.SysLog("failed to generate key: " + err.Error())
 		return
 	}
-	user.SetAccessToken(key)
-
-	if model.DB.Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
+	if model.DB.Where("access_token = ?", key).First(&model.User{}).RowsAffected != 0 {
 		common.ApiErrorI18n(c, i18n.MsgUuidDuplicate)
 		return
 	}
 
-	if err := user.Update(false); err != nil {
+	if err := model.UpdateUserAccessToken(id, key); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -435,7 +471,7 @@ func GenerateAccessToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user.AccessToken,
+		"data":    key,
 	})
 	return
 }
@@ -445,10 +481,6 @@ type TransferAffQuotaRequest struct {
 }
 
 func TransferAffQuota(c *gin.Context) {
-	if !requirePaymentCompliance(c) {
-		return
-	}
-
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
 	if err != nil {
@@ -467,7 +499,6 @@ func TransferAffQuota(c *gin.Context) {
 	}
 	common.ApiSuccessI18n(c, i18n.MsgUserTransferSuccess, nil)
 }
-
 func GetAffCode(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
@@ -492,7 +523,6 @@ func GetAffCode(c *gin.Context) {
 	})
 	return
 }
-
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")
@@ -643,7 +673,6 @@ func generateDefaultSidebarConfig(userRole int) string {
 
 	return string(configBytes)
 }
-
 func GetUserModels(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -690,12 +719,25 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if updatedUser.Password == "" {
-		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
-	}
-	if err := common.Validate.Struct(&updatedUser); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
-		return
+	// 密码为空表示管理员未修改密码，跳过密码字段校验
+	if updatedUser.Password != "" {
+		if err := common.Validate.Struct(&updatedUser); err != nil {
+			if key := common.GetValidationI18nKey(err); key != "" {
+				common.ApiErrorI18n(c, key)
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+			return
+		}
+	} else {
+		if err := common.Validate.StructExcept(&updatedUser, "Password"); err != nil {
+			if key := common.GetValidationI18nKey(err); key != "" {
+				common.ApiErrorI18n(c, key)
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+			return
+		}
 	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
 	if err != nil {
@@ -712,12 +754,24 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
-	if updatedUser.Password == "$I_LOVE_U" {
-		updatedUser.Password = "" // rollback to what it should be
-	}
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		// 锁定用户行后检查分组修改：与注册的邀请人分组继承（GetUserGroupByIdTx
+		// 锁定同一行）互斥，保证"已有邀请记录的用户禁止改分组"不被并发注册绕过
+		lockedGroup, err := model.GetUserGroupByIdTx(tx, updatedUser.Id)
+		if err != nil {
+			return err
+		}
+		if lockedGroup != updatedUser.Group {
+			hasInvitees, err := model.HasInviteesTx(tx, updatedUser.Id)
+			if err != nil {
+				return err
+			}
+			if hasInvitees {
+				return model.ErrUserGroupModifyForbidden
+			}
+		}
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
@@ -725,6 +779,10 @@ func UpdateUser(c *gin.Context) {
 		authzTouched = touched
 		return err
 	}); err != nil {
+		if errors.Is(err, model.ErrUserGroupModifyForbidden) {
+			common.ApiErrorI18n(c, i18n.MsgUserGroupModifyForbidden)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -798,7 +856,6 @@ func AdminClearUserBinding(c *gin.Context) {
 		"message": "success",
 	})
 }
-
 func UpdateSelf(c *gin.Context) {
 	var requestData map[string]interface{}
 	if err := common.DecodeJson(c.Request.Body, &requestData); err != nil {
@@ -870,12 +927,25 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
-	if user.Password == "" {
-		user.Password = "$I_LOVE_U" // make Validator happy :)
-	}
-	if err := common.Validate.Struct(&user); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidInput)
-		return
+	// 密码为空表示未修改密码，跳过密码字段校验
+	if user.Password != "" {
+		if err := common.Validate.Struct(&user); err != nil {
+			if key := common.GetValidationI18nKey(err); key != "" {
+				common.ApiErrorI18n(c, key)
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgInvalidInput)
+			return
+		}
+	} else {
+		if err := common.Validate.StructExcept(&user, "Password"); err != nil {
+			if key := common.GetValidationI18nKey(err); key != "" {
+				common.ApiErrorI18n(c, key)
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgInvalidInput)
+			return
+		}
 	}
 
 	cleanUser := model.User{
@@ -884,10 +954,6 @@ func UpdateSelf(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Phone:       user.Phone,
-	}
-	if user.Password == "$I_LOVE_U" {
-		user.Password = "" // rollback to what it should be
-		cleanUser.Password = ""
 	}
 	updatePassword, err := checkUpdatePassword(user.OriginalPassword, user.Password, cleanUser.Id)
 	if err != nil {
@@ -1006,7 +1072,6 @@ func DeleteUser(c *gin.Context) {
 	})
 	return
 }
-
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	user, _ := model.GetUserById(id, false)
@@ -1037,6 +1102,10 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 	if err := common.Validate.Struct(&user); err != nil {
+		if key := common.GetValidationI18nKey(err); key != "" {
+			common.ApiErrorI18n(c, key)
+			return
+		}
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
@@ -1223,6 +1292,10 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
 				common.ApiError(c, err)
 				return
@@ -1243,6 +1316,10 @@ func ManageUser(c *gin.Context) {
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)
@@ -1364,7 +1441,7 @@ func EmailBind(c *gin.Context) {
 }
 
 type topUpRequest struct {
-	Key string `json:"key"`
+	Key string `json:"key" binding:"required"`
 }
 
 var topUpLocks sync.Map
@@ -1407,13 +1484,7 @@ func getTopUpLock(userID int) *topUpTryLock {
 	topUpLocks.Store(userID, l)
 	return l
 }
-
 func TopUp(c *gin.Context) {
-	if !operation_setting.IsPaymentComplianceConfirmed() {
-		common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
-		return
-	}
-
 	id := c.GetInt("id")
 	lock := getTopUpLock(id)
 	if !lock.TryLock() {

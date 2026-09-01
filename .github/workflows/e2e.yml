@@ -1,0 +1,120 @@
+name: E2E
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Fires on mergify merge-queue branches so queue merges can be gated on checks.
+  merge_group:
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-test:
+    name: E2E (KinD)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # One job builds and tests: the image never leaves the runner, so no
+      # registry push and no multi-GB artifact round-trip are needed.
+      - name: Build app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            cuberouter:e2e
+            cuberouter:e2e-${{ github.sha }}
+          cache-from: type=gha,scope=e2e-image
+          cache-to: type=gha,mode=max,scope=e2e-image
+
+      - name: Create KinD cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          # helm/kind-action defaults to cluster_name "chart-testing"; the
+          # downstream `kind load docker-image` call targets the default
+          # "kind" cluster, so match the names.
+          cluster_name: kind
+
+      - name: Load image into KinD
+        run: kind load docker-image cuberouter:e2e
+
+      - name: Deploy and wait for rollout
+        run: |
+          kubectl apply -f e2e/k8s/
+          kubectl -n cuberouter-e2e rollout status deployment/cuberouter --timeout=240s
+
+      # kubectl port-forward drops connections under load (broken pipes,
+      # ECONNRESET); the journey burst-loads many JS chunks + API calls at
+      # once, which reliably trips it. Reach the service over its NodePort on
+      # the KinD node IP instead — that path stays up for the whole run.
+      - name: Wait for API readiness via NodePort
+        run: |
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          echo "Node IP: ${NODE_IP}"
+          echo "E2E_BASE_URL=http://${NODE_IP}:30080" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do
+            if curl -sf "http://${NODE_IP}:30080/api/status" | grep -q '"success":true'; then
+              echo "API ready after ${i} checks"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready in time"
+          exit 1
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: bun install
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # package.json pins an exact @playwright/test version, so a version
+          # bump changes this key and forces a fresh browser install.
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package.json') }}
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright journey specs
+        working-directory: e2e
+        env:
+          E2E_BASE_URL: ${{ env.E2E_BASE_URL }}
+          # In-cluster address of the MockLLM service (e2e/k8s/mockllm.yaml);
+          # the channel's base_url is used by the backend pod to reach it.
+          MOCKLLM_BASE_URL: http://mockllm:18000
+          CI: 'true'
+        run: npx playwright test
+
+      - name: Dump KinD diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n cuberouter-e2e get all -o wide || true
+          kubectl -n cuberouter-e2e describe deployment/cuberouter || true
+          kubectl -n cuberouter-e2e logs deployment/cuberouter --tail=300 || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: ignore
+          retention-days: 7

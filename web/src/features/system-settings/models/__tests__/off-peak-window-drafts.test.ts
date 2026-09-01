@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { expect } from 'vitest'
+import { describe, test } from 'vitest'
 
 import type { OffPeakWindow } from '@/features/pricing/types'
 
@@ -39,7 +39,7 @@ const defaultWindow: OffPeakWindow = {
 
 describe('off-peak window drafts', () => {
   test('window to drafts preserves values as strings', () => {
-    assert.deepEqual(windowToDrafts(defaultWindow), {
+    expect(windowToDrafts(defaultWindow)).toEqual({
       startHour: '22',
       endHour: '8',
       timezone: 'Asia/Shanghai',
@@ -48,14 +48,14 @@ describe('off-peak window drafts', () => {
 
   test('drafts to window round-trips the default window', () => {
     const window = draftsToWindow(windowToDrafts(defaultWindow))
-    assert.deepEqual(window, defaultWindow)
+    expect(window).toEqual(defaultWindow)
   })
 
   test('drafts to window returns null for an empty or out-of-range hour', () => {
-    assert.equal(draftsToWindow({ startHour: '', endHour: '8', timezone: 'x' }), null)
-    assert.equal(draftsToWindow({ startHour: '24', endHour: '8', timezone: 'x' }), null)
-    assert.equal(draftsToWindow({ startHour: '-1', endHour: '8', timezone: 'x' }), null)
-    assert.equal(draftsToWindow({ startHour: '22', endHour: '1a', timezone: 'x' }), null)
+    expect(draftsToWindow({ startHour: '', endHour: '8', timezone: 'x' })).toBe(null)
+    expect(draftsToWindow({ startHour: '24', endHour: '8', timezone: 'x' })).toBe(null)
+    expect(draftsToWindow({ startHour: '-1', endHour: '8', timezone: 'x' })).toBe(null)
+    expect(draftsToWindow({ startHour: '22', endHour: '1a', timezone: 'x' })).toBe(null)
   })
 
   test('drafts to window trims the timezone', () => {
@@ -64,76 +64,54 @@ describe('off-peak window drafts', () => {
       endHour: '8',
       timezone: '  Asia/Shanghai  ',
     })
-    assert.equal(window?.timezone, 'Asia/Shanghai')
+    expect(window?.timezone).toBe('Asia/Shanghai')
   })
 
   test('hour draft regex only admits up to two digits', () => {
-    assert.ok(hourDraftRegex.test(''))
-    assert.ok(hourDraftRegex.test('0'))
-    assert.ok(hourDraftRegex.test('23'))
-    assert.equal(hourDraftRegex.test('234'), false)
-    assert.equal(hourDraftRegex.test('2a'), false)
-    assert.equal(hourDraftRegex.test(' 2'), false)
+    expect(hourDraftRegex.test('')).toBeTruthy()
+    expect(hourDraftRegex.test('0')).toBeTruthy()
+    expect(hourDraftRegex.test('23')).toBeTruthy()
+    expect(hourDraftRegex.test('234')).toBe(false)
+    expect(hourDraftRegex.test('2a')).toBe(false)
+    expect(hourDraftRegex.test(' 2')).toBe(false)
   })
 
   test('hour validation accepts 0-23 and rejects empty, negative or out-of-range', () => {
-    assert.equal(isValidHourDraft('0'), true)
-    assert.equal(isValidHourDraft('23'), true)
-    assert.equal(isValidHourDraft(''), false)
-    assert.equal(isValidHourDraft('24'), false)
-    assert.equal(isValidHourDraft('-1'), false)
-    assert.equal(isValidHourDraft('1.5'), false)
+    expect(isValidHourDraft('0')).toBe(true)
+    expect(isValidHourDraft('23')).toBe(true)
+    expect(isValidHourDraft('')).toBe(false)
+    expect(isValidHourDraft('24')).toBe(false)
+    expect(isValidHourDraft('-1')).toBe(false)
+    expect(isValidHourDraft('1.5')).toBe(false)
   })
 
   test('equal start and end hours disable off-peak pricing', () => {
-    assert.equal(
-      isOffPeakDisabled({ start_hour: 22, end_hour: 22, timezone: 'UTC' }),
-      true
-    )
-    assert.equal(isOffPeakDisabled(defaultWindow), false)
+    expect(isOffPeakDisabled({ start_hour: 22, end_hour: 22, timezone: 'UTC' })).toBe(true)
+    expect(isOffPeakDisabled(defaultWindow)).toBe(false)
   })
 
   test('parse window JSON accepts valid and lenient numbers', () => {
-    assert.deepEqual(
-      parseOffPeakWindowJson(JSON.stringify(defaultWindow)),
-      defaultWindow
-    )
-    assert.deepEqual(
-      parseOffPeakWindowJson('{"start_hour":24,"end_hour":8,"timezone":"UTC"}'),
-      { start_hour: 24, end_hour: 8, timezone: 'UTC' }
-    )
+    expect(parseOffPeakWindowJson(JSON.stringify(defaultWindow))).toEqual(defaultWindow)
+    expect(
+      parseOffPeakWindowJson('{"start_hour":24,"end_hour":8,"timezone":"UTC"}')
+    ).toEqual({ start_hour: 24, end_hour: 8, timezone: 'UTC' })
   })
 
   test('parse window JSON rejects malformed input', () => {
-    assert.equal(parseOffPeakWindowJson(''), null)
-    assert.equal(parseOffPeakWindowJson('  '), null)
-    assert.equal(parseOffPeakWindowJson('{nope'), null)
-    assert.equal(parseOffPeakWindowJson('[]'), null)
-    assert.equal(
-      parseOffPeakWindowJson('{"start_hour":"22","end_hour":8,"timezone":"UTC"}'),
-      null
-    )
+    expect(parseOffPeakWindowJson('')).toBe(null)
+    expect(parseOffPeakWindowJson('  ')).toBe(null)
+    expect(parseOffPeakWindowJson('{nope')).toBe(null)
+    expect(parseOffPeakWindowJson('[]')).toBe(null)
+    expect(parseOffPeakWindowJson('{"start_hour":"22","end_hour":8,"timezone":"UTC"}')).toBe(null)
   })
 
   test('window JSON structure check requires integer hours in [0,23] and a timezone string', () => {
-    assert.equal(isOffPeakWindowJson(defaultWindow), true)
-    assert.equal(
-      isOffPeakWindowJson({ start_hour: 0, end_hour: 23, timezone: '' }),
-      true
-    )
-    assert.equal(
-      isOffPeakWindowJson({ start_hour: 24, end_hour: 8, timezone: 'UTC' }),
-      false
-    )
-    assert.equal(
-      isOffPeakWindowJson({ start_hour: 22, end_hour: 8 }),
-      false
-    )
-    assert.equal(
-      isOffPeakWindowJson({ start_hour: 22.5, end_hour: 8, timezone: 'UTC' }),
-      false
-    )
-    assert.equal(isOffPeakWindowJson(null), false)
-    assert.equal(isOffPeakWindowJson('not an object'), false)
+    expect(isOffPeakWindowJson(defaultWindow)).toBe(true)
+    expect(isOffPeakWindowJson({ start_hour: 0, end_hour: 23, timezone: '' })).toBe(true)
+    expect(isOffPeakWindowJson({ start_hour: 24, end_hour: 8, timezone: 'UTC' })).toBe(false)
+    expect(isOffPeakWindowJson({ start_hour: 22, end_hour: 8 })).toBe(false)
+    expect(isOffPeakWindowJson({ start_hour: 22.5, end_hour: 8, timezone: 'UTC' })).toBe(false)
+    expect(isOffPeakWindowJson(null)).toBe(false)
+    expect(isOffPeakWindowJson('not an object')).toBe(false)
   })
 })

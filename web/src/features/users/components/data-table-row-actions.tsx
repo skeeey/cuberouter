@@ -27,9 +27,11 @@ import {
   KeyRound,
   ShieldAlert,
   Link2,
+  ChartColumnBig,
   CreditCard,
   UserMinus,
   UserPlus,
+  UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -60,6 +62,8 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserInviteesDialog } from './dialogs/user-invitees-dialog'
+import { UserDashboardDialog } from './user-dashboard-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -74,6 +78,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [inviteesDialogOpen, setInviteesDialogOpen] = useState(false)
+  const [dashboardDialogOpen, setDashboardDialogOpen] = useState(false)
   const [promoteOpsOpen, setPromoteOpsOpen] = useState(false)
   const [demoteOpsOpen, setDemoteOpsOpen] = useState(false)
 
@@ -254,6 +260,30 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            setInviteesDialogOpen(true)
+          }}
+        >
+          {t('Invitees')}
+          <DropdownMenuShortcut>
+            <UsersRound size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            setDashboardDialogOpen(true)
+          }}
+        >
+          {t('Data Dashboard')}
+          <DropdownMenuShortcut>
+            <ChartColumnBig size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -356,6 +386,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <UserInviteesDialog
+        open={inviteesDialogOpen}
+        onOpenChange={setInviteesDialogOpen}
+        userId={user.id}
+        username={user.username}
+      />
+
+      <UserDashboardDialog
+        open={dashboardDialogOpen}
+        onOpenChange={setDashboardDialogOpen}
+        userId={user.id}
+        username={user.username}
       />
     </div>
   )

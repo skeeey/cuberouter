@@ -1,0 +1,11 @@
+pull_request_rules:
+  - name: automatically merge approved PRs
+    conditions:
+      - base = main
+      - "#approved-reviews-by >= 1"
+      - check-success = "Backend vet, build, and test"
+      - check-success = "Frontend typecheck and test"
+      - check-success = "E2E (KinD)"
+    actions:
+      merge:
+        method: squash

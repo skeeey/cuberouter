@@ -423,20 +423,6 @@ func CountUserSubscriptionsByPlan(userId int, planId int) (int64, error) {
 	return count, nil
 }
 
-func getUserGroupByIdTx(tx *gorm.DB, userId int) (string, error) {
-	if userId <= 0 {
-		return "", errors.New("invalid userId")
-	}
-	if tx == nil {
-		tx = DB
-	}
-	var group string
-	if err := lockForUpdate(tx).Model(&User{}).Where("id = ?", userId).Select(commonGroupCol).Find(&group).Error; err != nil {
-		return "", err
-	}
-	return group, nil
-}
-
 func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now int64) (string, error) {
 	if tx == nil || sub == nil {
 		return "", errors.New("invalid downgrade args")
@@ -447,7 +433,7 @@ func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now
 	if downgradeGroup == "" && upgradeGroup == "" {
 		return "", nil
 	}
-	currentGroup, err := getUserGroupByIdTx(tx, sub.UserId)
+	currentGroup, err := GetUserGroupByIdTx(tx, sub.UserId)
 	if err != nil {
 		return "", err
 	}
@@ -474,8 +460,7 @@ func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now
 	if target == "" || target == currentGroup {
 		return "", nil
 	}
-	if err := tx.Model(&User{}).Where("id = ?", sub.UserId).
-		Update("group", target).Error; err != nil {
+	if err := UpdateUserGroupWithInviteesTx(tx, sub.UserId, target); err != nil {
 		return "", err
 	}
 	return target, nil
@@ -517,14 +502,13 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 	upgradeGroup := strings.TrimSpace(plan.UpgradeGroup)
 	prevGroup := ""
 	if upgradeGroup != "" {
-		currentGroup, err := getUserGroupByIdTx(tx, userId)
+		currentGroup, err := GetUserGroupByIdTx(tx, userId)
 		if err != nil {
 			return nil, err
 		}
 		if currentGroup != upgradeGroup {
 			prevGroup = currentGroup
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("group", upgradeGroup).Error; err != nil {
+			if err := UpdateUserGroupWithInviteesTx(tx, userId, upgradeGroup); err != nil {
 				return nil, err
 			}
 		}
@@ -599,6 +583,12 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		}
 		if !plan.Enabled {
 			// still allow completion for already purchased orders
+		}
+		// 锁定用户行：并发完成同一用户的不同订单（包括多实例部署下）时，
+		// 使 CreateUserSubscriptionFromPlanTx 的 MaxPurchasePerUser 检查按用户串行。
+		var userRow User
+		if err := lockForUpdate(tx).Select("id").Where("id = ?", order.UserId).First(&userRow).Error; err != nil {
+			return err
 		}
 		subscription, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
@@ -712,6 +702,11 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 	}
 	groupChanged := false
 	err = DB.Transaction(func(tx *gorm.DB) error {
+		// 与 CompleteSubscriptionOrder 一致：先锁用户行，再做购买次数检查。
+		var userRow User
+		if err := lockForUpdate(tx).Select("id").Where("id = ?", userId).First(&userRow).Error; err != nil {
+			return err
+		}
 		subscription, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "admin")
 		if err == nil {
 			groupChanged = subscription.PrevUserGroup != ""
@@ -737,9 +732,8 @@ func calcSubscriptionBalanceQuota(priceAmount float64) (int, error) {
 	}
 	quota := decimal.NewFromFloat(priceAmount).
 		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Ceil().
-		IntPart()
-	return int(quota), nil
+		Ceil()
+	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
 // PurchaseSubscriptionWithBalance creates a subscription by deducting the user's wallet quota.
@@ -892,6 +886,22 @@ func GetAllUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	var subs []UserSubscription
 	err := DB.Where("user_id = ?", userId).
 		Order("end_time desc, id desc").
+		Find(&subs).Error
+	if err != nil {
+		return nil, err
+	}
+	return buildSubscriptionSummaries(subs), nil
+}
+
+// GetAllUserSubscriptionsByIdDesc returns all subscriptions for a user, ordered by id descending.
+// Used by the aggregated API which requires plans sorted by id DESC.
+func GetAllUserSubscriptionsByIdDesc(userId int) ([]SubscriptionSummary, error) {
+	if userId <= 0 {
+		return nil, errors.New("invalid userId")
+	}
+	var subs []UserSubscription
+	err := DB.Where("user_id = ?", userId).
+		Order("id desc").
 		Find(&subs).Error
 	if err != nil {
 		return nil, err
@@ -1185,7 +1195,7 @@ func ExpireDueSubscriptions(limit int) (int, error) {
 			if expiredQuery.Error != nil || expiredQuery.RowsAffected == 0 {
 				return nil
 			}
-			currentGroup, err := getUserGroupByIdTx(tx, userId)
+			currentGroup, err := GetUserGroupByIdTx(tx, userId)
 			if err != nil {
 				return err
 			}
@@ -1207,8 +1217,7 @@ func ExpireDueSubscriptions(limit int) (int, error) {
 			if target == "" || target == currentGroup {
 				return nil
 			}
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("group", target).Error; err != nil {
+			if err := UpdateUserGroupWithInviteesTx(tx, userId, target); err != nil {
 				return err
 			}
 			cacheGroup = target

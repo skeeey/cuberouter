@@ -8,21 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func confirmPaymentComplianceForTest(t *testing.T) {
-	t.Helper()
-	paymentSetting := operation_setting.GetPaymentSetting()
-	originalConfirmed := paymentSetting.ComplianceConfirmed
-	originalTermsVersion := paymentSetting.ComplianceTermsVersion
-	t.Cleanup(func() {
-		paymentSetting.ComplianceConfirmed = originalConfirmed
-		paymentSetting.ComplianceTermsVersion = originalTermsVersion
-	})
-	paymentSetting.ComplianceConfirmed = true
-	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
-}
-
 func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
-	confirmPaymentComplianceForTest(t)
 	originalAPISecret := setting.StripeApiSecret
 	originalWebhookSecret := setting.StripeWebhookSecret
 	originalPriceID := setting.StripePriceId
@@ -45,7 +31,6 @@ func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 }
 
 func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
-	confirmPaymentComplianceForTest(t)
 	originalAPIKey := setting.CreemApiKey
 	originalProducts := setting.CreemProducts
 	originalWebhookSecret := setting.CreemWebhookSecret
@@ -68,7 +53,6 @@ func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 }
 
 func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
-	confirmPaymentComplianceForTest(t)
 	originalEnabled := setting.WaffoEnabled
 	originalSandbox := setting.WaffoSandbox
 	originalAPIKey := setting.WaffoApiKey
@@ -113,7 +97,6 @@ func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 }
 
 func TestWaffoPancakeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
-	confirmPaymentComplianceForTest(t)
 	originalMerchantID := setting.WaffoPancakeMerchantID
 	originalPrivateKey := setting.WaffoPancakePrivateKey
 	originalProductID := setting.WaffoPancakeProductID
@@ -143,7 +126,6 @@ func TestWaffoPancakeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 }
 
 func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
-	confirmPaymentComplianceForTest(t)
 	originalPayAddress := operation_setting.PayAddress
 	originalEpayID := operation_setting.EpayId
 	originalEpayKey := operation_setting.EpayKey
@@ -166,4 +148,41 @@ func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 	operation_setting.PayMethods = nil
 	require.False(t, isEpayWebhookEnabled())
+}
+
+func TestAlipayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
+	originalAppID := setting.AlipayAppId
+	originalPrivateKey := setting.AlipayPrivateKey
+	originalPublicKey := setting.AlipayPublicKey
+	originalSandbox := setting.AlipaySandboxEnabled
+	t.Cleanup(func() {
+		setting.AlipayAppId = originalAppID
+		setting.AlipayPrivateKey = originalPrivateKey
+		setting.AlipayPublicKey = originalPublicKey
+		setting.AlipaySandboxEnabled = originalSandbox
+	})
+
+	setting.AlipayAppId = ""
+	setting.AlipayPrivateKey = ""
+	setting.AlipayPublicKey = ""
+	require.False(t, isAlipayTopUpEnabled())
+	require.False(t, isAlipayWebhookEnabled())
+
+	setting.AlipayAppId = "app_id"
+	setting.AlipayPrivateKey = "private_key"
+	require.False(t, isAlipayTopUpEnabled())
+	require.False(t, isAlipayWebhookEnabled())
+
+	setting.AlipayPublicKey = "public_key"
+	require.True(t, isAlipayTopUpEnabled())
+	require.True(t, isAlipayWebhookEnabled())
+
+	// 沙箱开关不影响启用判定，只决定 SDK 连沙箱还是正式网关
+	setting.AlipaySandboxEnabled = true
+	require.True(t, isAlipayTopUpEnabled())
+	require.True(t, isAlipayWebhookEnabled())
+
+	setting.AlipayPrivateKey = ""
+	require.False(t, isAlipayTopUpEnabled())
+	require.False(t, isAlipayWebhookEnabled())
 }

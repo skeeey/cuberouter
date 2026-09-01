@@ -116,7 +116,10 @@ export function RechargeFormCard({
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
 
   useEffect(() => {
-    setLocalAmount(topupAmount.toString())
+    // Empty string must survive, otherwise the field can never be cleared
+    setLocalAmount((prev) =>
+      prev === '' && topupAmount === 0 ? prev : topupAmount.toString()
+    )
   }, [topupAmount])
 
   const handleAmountChange = (value: string) => {
@@ -130,6 +133,7 @@ export function RechargeFormCard({
   const hasConfigurableTopup =
     topupInfo?.enable_online_topup ||
     topupInfo?.enable_stripe_topup ||
+    topupInfo?.enable_alipay_topup ||
     enableWaffoTopup ||
     enableWaffoPancakeTopup
   const hasAnyTopup = hasConfigurableTopup || enableCreemTopup
@@ -138,7 +142,6 @@ export function RechargeFormCard({
   const hasWaffoPaymentMethods =
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
-  const redemptionEnabled = topupInfo?.enable_redemption !== false
 
   if (loading) {
     return (
@@ -317,7 +320,10 @@ export function RechargeFormCard({
                 {hasStandardPaymentMethods ? (
                   <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                     {topupInfo?.pay_methods?.map((method) => {
-                      const minTopup = method.min_topup || 0
+                      const minTopup = Math.max(
+                        method.min_topup || 0,
+                        getMinTopupAmount(topupInfo)
+                      )
                       const disabled = minTopup > topupAmount
                       const disabledReason = disabled
                         ? t('Minimum topup amount: {{amount}}', {
@@ -498,61 +504,51 @@ export function RechargeFormCard({
         )}
 
       {/* Redemption Code Section */}
-      {redemptionEnabled ? (
-        <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
-          <div className='flex items-center gap-2'>
-            <IconBadge tone='warning' size='xs'>
-              <Gift />
-            </IconBadge>
-            <Label
-              htmlFor='redemption-code'
-              className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-            >
-              {t('Have a Code?')}
-            </Label>
-          </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-            <Input
-              id='redemption-code'
-              value={redemptionCode}
-              onChange={(e) => onRedemptionCodeChange(e.target.value)}
-              placeholder={t('Enter your redemption code')}
-              className='h-9 min-w-0'
-            />
-            <Button
-              onClick={onRedeem}
-              disabled={redeeming}
-              variant='outline'
-              className='h-9 px-4'
-            >
-              {redeeming && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-              {t('Redeem')}
-            </Button>
-          </div>
-          {topupLink && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Need a redemption code?')}{' '}
-              <a
-                href={topupLink}
-                target='_blank'
-                rel='noopener noreferrer'
-                className='inline-flex items-center gap-1 underline-offset-4 hover:underline'
-              >
-                {t('Get one here')}
-                <ExternalLink className='h-3 w-3' />
-              </a>
-            </p>
-          )}
+      <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
+        <div className='flex items-center gap-2'>
+          <IconBadge tone='warning' size='xs'>
+            <Gift />
+          </IconBadge>
+          <Label
+            htmlFor='redemption-code'
+            className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
+          >
+            {t('Have a Code?')}
+          </Label>
         </div>
-      ) : (
-        <Alert className='border-t'>
-          <AlertDescription>
-            {t(
-              'Redemption codes are disabled until the administrator confirms compliance terms.'
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+        <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
+          <Input
+            id='redemption-code'
+            value={redemptionCode}
+            onChange={(e) => onRedemptionCodeChange(e.target.value)}
+            placeholder={t('Enter your redemption code')}
+            className='h-9 min-w-0'
+          />
+          <Button
+            onClick={onRedeem}
+            disabled={redeeming}
+            variant='outline'
+            className='h-9 px-4'
+          >
+            {redeeming && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+            {t('Redeem')}
+          </Button>
+        </div>
+        {topupLink && (
+          <p className='text-muted-foreground text-xs'>
+            {t('Need a redemption code?')}{' '}
+            <a
+              href={topupLink}
+              target='_blank'
+              rel='noopener noreferrer'
+              className='inline-flex items-center gap-1 underline-offset-4 hover:underline'
+            >
+              {t('Get one here')}
+              <ExternalLink className='h-3 w-3' />
+            </a>
+          </p>
+        )}
+      </div>
     </TitledCard>
   )
 }

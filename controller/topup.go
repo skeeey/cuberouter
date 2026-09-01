@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,12 +23,41 @@ import (
 )
 
 func GetTopUpInfo(c *gin.Context) {
-	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
+	// 获取支付方式：只保留对应网关已启用的方式（stripe/waffo_pancake/alipay_official 由各自
+	// 网关判定，其余为 EPay 透传类型，仅在 EPay 已配置时展示）
+	payMethods := lo.Filter(operation_setting.PayMethods, func(method map[string]string, _ int) bool {
+		switch method["type"] {
+		case "stripe":
+			return isStripeTopUpEnabled()
+		case model.PaymentMethodWaffoPancake:
+			return isWaffoPancakeTopUpEnabled()
+		case model.PaymentMethodAlipay:
+			return isAlipayTopUpEnabled()
+		case model.PaymentMethodWaffo:
+			return isWaffoTopUpEnabled()
+		default:
+			return isEpayWebhookConfigured()
+		}
+	})
 
-	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
-		payMethods = []map[string]string{}
+	// 如果启用了支付宝官方支付，置为支付方式列表第一位（默认支付方式）
+	if isAlipayTopUpEnabled() {
+		hasAlipayOfficial := false
+		for _, method := range payMethods {
+			if method["type"] == model.PaymentMethodAlipay {
+				hasAlipayOfficial = true
+				break
+			}
+		}
+
+		if !hasAlipayOfficial {
+			payMethods = append([]map[string]string{{
+				"name":      "Alipay",
+				"type":      model.PaymentMethodAlipay,
+				"color":     "#1677ff",
+				"min_topup": strconv.Itoa(setting.AlipayMinTopUp),
+			}}, payMethods...)
+		}
 	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
@@ -96,14 +126,13 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup":              isEpayTopUpEnabled(),
-		"enable_stripe_topup":              isStripeTopUpEnabled(),
-		"enable_creem_topup":               isCreemTopUpEnabled(),
-		"enable_waffo_topup":               enableWaffo,
-		"enable_waffo_pancake_topup":       enableWaffoPancake,
-		"enable_redemption":                complianceConfirmed,
-		"payment_compliance_confirmed":     complianceConfirmed,
-		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
+		"enable_online_topup":        isEpayTopUpEnabled(),
+		"enable_stripe_topup":        isStripeTopUpEnabled(),
+		"enable_alipay_topup":        isAlipayTopUpEnabled(),
+		"alipay_min_topup":           setting.AlipayMinTopUp,
+		"enable_creem_topup":         isCreemTopUpEnabled(),
+		"enable_waffo_topup":         enableWaffo,
+		"enable_waffo_pancake_topup": enableWaffoPancake,
 		"waffo_pay_methods": func() interface{} {
 			if enableWaffo {
 				return setting.GetWaffoPayMethods()
@@ -186,6 +215,82 @@ func getMinTopup() int64 {
 	return int64(minTopup)
 }
 
+func getTopUpQuota(amount int64) (int, error) {
+	quota := decimal.NewFromInt(amount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+		quota = decimal.NewFromInt(quota.Div(quotaPerUnit).IntPart()).Mul(quotaPerUnit)
+	} else {
+		quota = quota.Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	return common.WalletQuotaFromDecimalStrict(quota)
+}
+
+func getMaxTopUpAmount() int64 {
+	if common.QuotaPerUnit <= 0 {
+		return 0
+	}
+	quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+	maxStoredAmount := decimal.NewFromInt(common.MaxWalletQuota - 1).
+		Div(quotaPerUnit).
+		Floor()
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		return maxStoredAmount.Add(decimal.NewFromInt(1)).
+			Mul(quotaPerUnit).
+			Ceil().
+			Sub(decimal.NewFromInt(1)).
+			IntPart()
+	}
+	return maxStoredAmount.IntPart()
+}
+
+func validateCreditedQuota(quota decimal.Decimal) (int, error) {
+	value, err := common.WalletQuotaFromDecimalStrict(quota)
+	if err != nil {
+		return 0, errors.New("充值额度超出系统可表示范围")
+	}
+	if value <= 0 {
+		return 0, errors.New("充值额度必须大于 0")
+	}
+	return value, nil
+}
+
+func validateTopUpQuota(amount int64) (int, error) {
+	quota, err := getTopUpQuota(amount)
+	if err == nil && quota > 0 {
+		return quota, nil
+	}
+	maxAmount := getMaxTopUpAmount()
+	if maxAmount > 0 && amount > maxAmount {
+		return 0, fmt.Errorf("单笔充值数量不能大于 %d", maxAmount)
+	}
+	return 0, errors.New("充值数量无效")
+}
+
+func rejectInvalidCreditedQuota(c *gin.Context, userId int, quota decimal.Decimal) bool {
+	creditedQuota, err := validateCreditedQuota(quota)
+	if err == nil {
+		err = model.ValidateTopUpQuotaCapacity(userId, creditedQuota)
+	}
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		return true
+	}
+	return false
+}
+
+func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
+	creditedQuota, err := validateTopUpQuota(amount)
+	if err == nil {
+		err = model.ValidateTopUpQuotaCapacity(userId, creditedQuota)
+	}
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		return true
+	}
+	return false
+}
+
 func RequestEpay(c *gin.Context) {
 	var req EpayRequest
 	err := c.ShouldBindJSON(&req)
@@ -197,8 +302,11 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
 		return
 	}
-
 	id := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+		return
+	}
+
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
@@ -410,7 +518,6 @@ func EpayNotify(c *gin.Context) {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 忽略事件 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
 	}
 }
-
 func RequestAmount(c *gin.Context) {
 	var req AmountRequest
 	err := c.ShouldBindJSON(&req)
@@ -424,6 +531,9 @@ func RequestAmount(c *gin.Context) {
 		return
 	}
 	id := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+		return
+	}
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
@@ -436,7 +546,6 @@ func RequestAmount(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
 }
-
 func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)

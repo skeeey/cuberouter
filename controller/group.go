@@ -22,7 +22,6 @@ func GetGroups(c *gin.Context) {
 		"data":    groupNames,
 	})
 }
-
 func GetUserGroups(c *gin.Context) {
 	usableGroups := make(map[string]map[string]interface{})
 	userGroup := ""

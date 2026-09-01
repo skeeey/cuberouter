@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -73,6 +75,7 @@ func GetStatus(c *gin.Context) {
 		"turnstile_check":             common.TurnstileCheckEnabled,
 		"turnstile_site_key":          common.TurnstileSiteKey,
 		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
+		"admin_docs_link":             operation_setting.GetGeneralSetting().AdminDocsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
@@ -111,6 +114,7 @@ func GetStatus(c *gin.Context) {
 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
 		"oidc_authorization_endpoint": system_setting.GetOIDCSettings().AuthorizationEndpoint,
+		"oidc_display_name":           system_setting.GetOIDCSettings().GetEffectiveDisplayName(),
 		"passkey_login":               passkeySetting.Enabled,
 		"passkey_display_name":        passkeySetting.RPDisplayName,
 		"passkey_rp_id":               passkeySetting.RPID,
@@ -282,10 +286,17 @@ func SendEmailVerification(c *gin.Context) {
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	subject := fmt.Sprintf("%s邮箱验证邮件", common.SystemName)
-	content := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+
+	subject := common.WrapBilingualSubject(
+		fmt.Sprintf("%s Email Verification", common.SystemName),
+		fmt.Sprintf("%s邮箱验证邮件", common.SystemName),
+	)
+	zhContent := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+
 		"<p>您的验证码为: <strong>%s</strong></p>"+
 		"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, code, common.VerificationValidMinutes)
+	enContent := fmt.Sprintf("<p>Hello, you are verifying your email for %s.</p>"+
+		"<p>Your verification code is: <strong>%s</strong></p>"+
+		"<p>This code is valid for %d minutes. If you did not request this, please ignore this email.</p>", common.SystemName, code, common.VerificationValidMinutes)
+	content := common.WrapBilingualContent(enContent, zhContent)
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)
@@ -307,12 +318,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 	if _, err := model.GetUniqueUserByEmail(email); err == nil {
 		code := common.GenerateVerificationCode(0)
 		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
-		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
-		subject := fmt.Sprintf("%s密码重置", common.SystemName)
-		content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+
-			"<p>点击 <a href='%s'>此处</a> 进行密码重置。</p>"+
-			"<p>如果链接无法点击，请尝试点击下面的链接或将其复制到浏览器中打开：<br> %s </p>"+
-			"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, link, link, common.VerificationValidMinutes)
+		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, url.QueryEscape(email), url.QueryEscape(code))
+		// 链接用于 href 属性与可见文本：HTML 转义防止 &、引号等破坏属性或注入标签。
+		// 模板以 {{.Link}} 原样插入，故传入已转义链接。
+		escapedLink := html.EscapeString(link)
+		subject, content := common.RenderPasswordResetEmail(common.SystemName, escapedLink, common.VerificationValidMinutes)
 		err := common.SendEmail(subject, email, content)
 		if err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to send password reset email to %s: %s", email, err.Error()))
@@ -331,6 +341,18 @@ type PasswordResetRequest struct {
 	Token string `json:"token"`
 }
 
+// resetLinkInvalidCode 标记重置链接失效（token 缺失/过期/已消费），前端据此
+// 切换到无效链接状态而不是停留在表单
+const resetLinkInvalidCode = "PASSWORD_RESET_LINK_INVALID"
+
+// resetLinkInvalidResponse 返回带 code 的失效链接响应（区别于普通业务错误）
+func resetLinkInvalidResponse(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"code":    resetLinkInvalidCode,
+		"message": common.TranslateMessage(c, i18n.MsgUserPasswordResetLinkInvalid),
+	})
+}
 func ResetPassword(c *gin.Context) {
 	var req PasswordResetRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&req)
@@ -343,25 +365,50 @@ func ResetPassword(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
+	// 原子地 claim token：同一 token 的并发请求只有第一个能通过，其余立即
+	// 视为链接失效——避免两个请求各自投递不同新密码、后落库者作废先投者。
+	if !common.ClaimVerificationCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
+		resetLinkInvalidResponse(c)
 		return
 	}
 	password := common.GenerateVerificationCode(12)
-	err = model.ResetUserPasswordByEmail(req.Email, password)
+
+	// 先发送邮件，投递成功后再落库新密码并消费重置 token：SMTP 失败时
+	// 旧密码与 token 都保持原样，用户可重试，不会被锁在门外。
+	subject, content := common.RenderPasswordResetSuccessEmail(common.SystemName, password)
+	emailErr := common.SendEmail(subject, req.Email, content)
+	if emailErr != nil {
+		// 邮件未投出，释放 claim：旧密码与 token 都保持原样，用户可重试，
+		// 不会被锁在门外。
+		common.ReleaseVerificationCodeClaim(req.Email, req.Token, common.PasswordResetPurpose)
+		// 不记录用户邮箱：邮箱属于用户标识，落日志会形成 PII 留存路径
+		common.SysError(fmt.Sprintf("密码重置邮件发送失败: %v", emailErr))
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetEmailSendFailed)
+		return
+	}
+
+	committed, err := model.ResetUserPasswordByEmail(req.Email, password)
+	if committed {
+		// 密码更新已提交即消费重置 token：即使 post-commit 步骤（缓存发布/
+		// 会话撤销）失败返回 error，token 也不能保留——否则可被重放再次
+		// 轮换密码
+		common.DeleteKey(req.Email, common.PasswordResetPurpose)
+	} else if err != nil {
+		// 密码未落库（用户不存在/数据库错误），释放 claim 让用户可重试。
+		common.ReleaseVerificationCodeClaim(req.Email, req.Token, common.PasswordResetPurpose)
+	}
 	if err != nil {
 		if errors.Is(err, model.ErrEmailNotFound) || errors.Is(err, model.ErrEmailAmbiguous) {
-			common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
+			resetLinkInvalidResponse(c)
 			return
 		}
 		common.ApiError(c, err)
 		return
 	}
-	common.DeleteKey(req.Email, common.PasswordResetPurpose)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
-		"data":    password,
+		"message": common.TranslateMessage(c, i18n.MsgUserPasswordResetEmailSent),
 	})
 	return
 }

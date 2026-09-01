@@ -39,17 +39,6 @@ export type UpdateOptionResponse = {
   message: string
 }
 
-export type ConfirmPaymentComplianceResponse = {
-  success: boolean
-  message: string
-  data?: {
-    confirmed: boolean
-    terms_version: string
-    confirmed_at: number
-    confirmed_by: number
-  }
-}
-
 export type SystemTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export type SystemTask<
@@ -114,8 +103,11 @@ export type SiteSettings = {
   About: string
   HomePageContent: string
   ServerAddress: string
+  TaskPublicAddress: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
+  'general_setting.docs_link': string
+  'general_setting.admin_docs_link': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
 }
@@ -136,6 +128,7 @@ export type AuthSettings = {
   'discord.client_id': string
   'discord.client_secret': string
   'oidc.enabled': boolean
+  'oidc.display_name': string
   'oidc.client_id': string
   'oidc.client_secret': string
   'oidc.well_known': string
@@ -222,6 +215,7 @@ export type ModelSettings = {
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
+  MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
   RetryTimes: number
@@ -233,7 +227,11 @@ export type ModelSettings = {
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
-  'monitor_setting.channel_test_mode': 'scheduled_all' | 'passive_recovery'
+  'monitor_setting.channel_test_concurrency': number
+  'monitor_setting.channel_test_mode':
+    | 'scheduled_all'
+    | 'auto_ban_only'
+    | 'passive_recovery'
   'channel_affinity_setting.enabled': boolean
   'channel_affinity_setting.switch_on_success': boolean
   'channel_affinity_setting.keep_on_channel_disabled': boolean
@@ -250,7 +248,6 @@ export type BillingSettings = {
   QuotaForInviter: number
   QuotaForInvitee: number
   TopUpLink: string
-  'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
@@ -278,6 +275,7 @@ export type BillingSettings = {
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
+  MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
   PayAddress: string
@@ -289,17 +287,18 @@ export type BillingSettings = {
   PayMethods: string
   'payment_setting.amount_options': string
   'payment_setting.amount_discount': string
-  'payment_setting.compliance_confirmed': boolean
-  'payment_setting.compliance_terms_version': string
-  'payment_setting.compliance_confirmed_at': number
-  'payment_setting.compliance_confirmed_by': number
-  'payment_setting.compliance_confirmed_ip': string
   StripeApiSecret: string
   StripeWebhookSecret: string
   StripePriceId: string
   StripeUnitPrice: number
   StripeMinTopUp: number
   StripePromotionCodesEnabled: boolean
+  AlipayAppId: string
+  AlipayPrivateKey: string
+  AlipayPublicKey: string
+  AlipayNotifyUrl: string
+  AlipayMinTopUp: number
+  AlipaySandboxEnabled: boolean
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean
@@ -345,6 +344,14 @@ export type OperationsSettings = {
   SMTPStartTLSEnabled: boolean
   SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
+  PasswordResetEmailSubjectEn: string
+  PasswordResetEmailSubjectZh: string
+  PasswordResetEmailContentEn: string
+  PasswordResetEmailContentZh: string
+  PasswordResetSuccessEmailSubjectEn: string
+  PasswordResetSuccessEmailSubjectZh: string
+  PasswordResetSuccessEmailContentEn: string
+  PasswordResetSuccessEmailContentZh: string
   WorkerUrl: string
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean

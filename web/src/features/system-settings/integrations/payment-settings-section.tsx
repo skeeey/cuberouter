@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { Code2, Eye, ShieldAlert } from 'lucide-react'
 import * as React from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
@@ -25,10 +25,9 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
-import { RiskAcknowledgementDialog } from '@/components/risk-acknowledgement-dialog'
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Alert,
-  AlertAction,
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert'
@@ -46,9 +45,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { cn } from '@/lib/utils'
 
-import { confirmPaymentCompliance } from '../api'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -147,6 +144,17 @@ const paymentSchema = z.object({
   StripeUnitPrice: z.coerce.number().min(0),
   StripeMinTopUp: z.coerce.number().min(0),
   StripePromotionCodesEnabled: z.boolean(),
+  AlipayAppId: z.string(),
+  AlipayPrivateKey: z.string(),
+  AlipayPublicKey: z.string(),
+  AlipayNotifyUrl: z
+    .string()
+    .refine(
+      isHttpOriginUrl,
+      'Enter only a top-level callback domain, for example https://api.example.com, without any path.'
+    ),
+  AlipayMinTopUp: z.coerce.number().min(0),
+  AlipaySandboxEnabled: z.boolean(),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
@@ -185,15 +193,7 @@ type PaymentBaseFormValues = Omit<
   keyof WaffoFormFieldValues | keyof WaffoPancakeSettingsValues
 >
 
-const CURRENT_COMPLIANCE_TERMS_VERSION = 'v1'
 const paymentTabContentClassName = 'mt-6 min-w-0'
-
-type PaymentComplianceDefaults = {
-  confirmed: boolean
-  termsVersion: string
-  confirmedAt: number
-  confirmedBy: number
-}
 
 type PaymentSettingsSectionProps = {
   defaultValues: PaymentBaseFormValues
@@ -201,7 +201,6 @@ type PaymentSettingsSectionProps = {
   waffoPancakeDefaultValues: WaffoPancakeSettingsValues
   waffoPancakeProvisionedStoreID?: string
   waffoPancakeProvisionedProductID?: string
-  complianceDefaults: PaymentComplianceDefaults
 }
 
 function parseWaffoPayMethods(value: string): PayMethod[] {
@@ -219,7 +218,6 @@ export function PaymentSettingsSection({
   waffoPancakeDefaultValues,
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
-  complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -245,7 +243,6 @@ export function PaymentSettingsSection({
     React.useState(true)
   const [creemProductsVisualMode, setCreemProductsVisualMode] =
     React.useState(true)
-  const [showComplianceDialog, setShowComplianceDialog] = React.useState(false)
   const [waffoPayMethods, setWaffoPayMethods] = React.useState<PayMethod[]>(
     () => parseWaffoPayMethods(waffoDefaultValues.WaffoPayMethods)
   )
@@ -272,80 +269,6 @@ export function PaymentSettingsSection({
     setWaffoPancakeSelection(nextBinding)
     setWaffoPancakeSavedBinding(nextBinding)
   }, [waffoPancakeProvisionedProductID, waffoPancakeProvisionedStoreID])
-
-  const complianceStatements = React.useMemo(
-    () => [
-      t(
-        'You have legally obtained authorization for the connected model APIs, accounts, keys, and quotas.'
-      ),
-      t(
-        'You commit to using upstream APIs, accounts, keys, quotas, and service capabilities only within the scope of lawful authorization obtained from upstream service providers, model service providers, or relevant rights holders, and will not conduct unauthorized resale, trafficking, distribution, or other non-compliant commercialization.'
-      ),
-      t(
-        'If you provide generative AI services to the public in mainland China, you will fulfill legal obligations including filing, security assessment, content safety, complaint handling, generated content labeling, log retention, and personal information protection.'
-      ),
-      t(
-        'You commit not to use this system to implement, assist with, or indirectly implement acts that violate applicable laws and regulations, regulatory requirements, platform rules, public interests, or the lawful rights and interests of third parties.'
-      ),
-      t(
-        'You understand and independently bear legal responsibility arising from deployment, operation, and charging behavior.'
-      ),
-      t(
-        'You understand this compliance reminder is only for risk notice and does not constitute legal advice, a compliance review conclusion, or a guarantee of the legality of your use of this system; you should consult professional legal or compliance advisors based on your actual business scenario.'
-      ),
-    ],
-    [t]
-  )
-
-  const complianceRequiredText = t(
-    'I have read and understood the above compliance reminder, acknowledge the related legal risks, and confirm that I bear legal responsibility arising from deployment, operation, and charging behavior.'
-  )
-  const complianceRequiredTextParts = React.useMemo(
-    () => [
-      {
-        type: 'input' as const,
-        text: t('I have read and understood the above compliance reminder'),
-      },
-      { type: 'static' as const, text: t('，') },
-      {
-        type: 'input' as const,
-        text: t('acknowledge the related legal risks'),
-      },
-      { type: 'static' as const, text: t('，and ') },
-      {
-        type: 'input' as const,
-        text: t(
-          'confirm that I bear legal responsibility arising from deployment'
-        ),
-      },
-      { type: 'static' as const, text: t('、') },
-      {
-        type: 'input' as const,
-        text: t('operation and charging behavior'),
-      },
-    ],
-    [t]
-  )
-
-  const complianceConfirmed =
-    complianceDefaults.confirmed &&
-    complianceDefaults.termsVersion === CURRENT_COMPLIANCE_TERMS_VERSION
-
-  const confirmComplianceMutation = useMutation({
-    mutationFn: confirmPaymentCompliance,
-    onSuccess: (data) => {
-      if (data.success) {
-        toast.success(t('Compliance confirmed successfully'))
-        setShowComplianceDialog(false)
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
-      } else {
-        toast.error(data.message || t('Failed to confirm compliance'))
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || t('Failed to confirm compliance'))
-    },
-  })
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema) as Resolver<PaymentFormValues>,
@@ -433,6 +356,12 @@ export function PaymentSettingsSection({
       StripeUnitPrice: values.StripeUnitPrice,
       StripeMinTopUp: values.StripeMinTopUp,
       StripePromotionCodesEnabled: values.StripePromotionCodesEnabled,
+      AlipayAppId: values.AlipayAppId.trim(),
+      AlipayPrivateKey: values.AlipayPrivateKey.trim(),
+      AlipayPublicKey: values.AlipayPublicKey.trim(),
+      AlipayNotifyUrl: removeTrailingSlash(values.AlipayNotifyUrl.trim()),
+      AlipayMinTopUp: values.AlipayMinTopUp,
+      AlipaySandboxEnabled: values.AlipaySandboxEnabled,
       CreemApiKey: values.CreemApiKey.trim(),
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
@@ -478,6 +407,14 @@ export function PaymentSettingsSection({
       StripeMinTopUp: initialRef.current.StripeMinTopUp,
       StripePromotionCodesEnabled:
         initialRef.current.StripePromotionCodesEnabled,
+      AlipayAppId: initialRef.current.AlipayAppId.trim(),
+      AlipayPrivateKey: initialRef.current.AlipayPrivateKey.trim(),
+      AlipayPublicKey: initialRef.current.AlipayPublicKey.trim(),
+      AlipayNotifyUrl: removeTrailingSlash(
+        initialRef.current.AlipayNotifyUrl.trim()
+      ),
+      AlipayMinTopUp: initialRef.current.AlipayMinTopUp,
+      AlipaySandboxEnabled: initialRef.current.AlipaySandboxEnabled,
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
@@ -598,6 +535,45 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'StripePromotionCodesEnabled',
         value: sanitized.StripePromotionCodesEnabled,
+      })
+    }
+
+    if (sanitized.AlipayAppId !== initial.AlipayAppId) {
+      updates.push({ key: 'AlipayAppId', value: sanitized.AlipayAppId })
+    }
+
+    if (
+      sanitized.AlipayPrivateKey &&
+      sanitized.AlipayPrivateKey !== initial.AlipayPrivateKey
+    ) {
+      updates.push({
+        key: 'AlipayPrivateKey',
+        value: sanitized.AlipayPrivateKey,
+      })
+    }
+
+    if (
+      sanitized.AlipayPublicKey &&
+      sanitized.AlipayPublicKey !== initial.AlipayPublicKey
+    ) {
+      updates.push({
+        key: 'AlipayPublicKey',
+        value: sanitized.AlipayPublicKey,
+      })
+    }
+
+    if (sanitized.AlipayNotifyUrl !== initial.AlipayNotifyUrl) {
+      updates.push({ key: 'AlipayNotifyUrl', value: sanitized.AlipayNotifyUrl })
+    }
+
+    if (sanitized.AlipayMinTopUp !== initial.AlipayMinTopUp) {
+      updates.push({ key: 'AlipayMinTopUp', value: sanitized.AlipayMinTopUp })
+    }
+
+    if (sanitized.AlipaySandboxEnabled !== initial.AlipaySandboxEnabled) {
+      updates.push({
+        key: 'AlipaySandboxEnabled',
+        value: sanitized.AlipaySandboxEnabled,
       })
     }
 
@@ -798,76 +774,10 @@ export function PaymentSettingsSection({
 
   return (
     <SettingsSection title={t('Payment Gateway')}>
-      {!complianceConfirmed ? (
-        <Alert variant='destructive' className='mb-6'>
-          <ShieldAlert className='h-4 w-4' />
-          <AlertTitle>{t('Compliance confirmation required')}</AlertTitle>
-          <AlertDescription>
-            <div className='space-y-3'>
-              <p>
-                {t(
-                  'Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.'
-                )}
-              </p>
-              <ol className='list-decimal space-y-1 pl-5'>
-                {complianceStatements.map((statement) => (
-                  <li key={statement}>{statement}</li>
-                ))}
-              </ol>
-            </div>
-          </AlertDescription>
-          <AlertAction>
-            <Button
-              type='button'
-              size='sm'
-              variant='destructive'
-              onClick={() => setShowComplianceDialog(true)}
-            >
-              {t('Confirm compliance')}
-            </Button>
-          </AlertAction>
-        </Alert>
-      ) : (
-        <Alert className='mb-6'>
-          <AlertTitle>{t('Compliance confirmed')}</AlertTitle>
-          <AlertDescription>
-            {t('Confirmed at {{time}} by user #{{userId}}', {
-              time: complianceDefaults.confirmedAt
-                ? new Date(
-                    complianceDefaults.confirmedAt * 1000
-                  ).toLocaleString()
-                : '-',
-              userId: complianceDefaults.confirmedBy || '-',
-            })}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <RiskAcknowledgementDialog
-        open={showComplianceDialog}
-        onOpenChange={setShowComplianceDialog}
-        title={t('Confirm compliance terms')}
-        description={t(
-          'This confirmation unlocks payment, redemption code, subscription plan, and invitation reward features. Please read the statements carefully.'
-        )}
-        items={complianceStatements}
-        requiredText={complianceRequiredText}
-        requiredTextParts={complianceRequiredTextParts}
-        inputPrompt={t('Please type the following text to confirm:')}
-        inputPlaceholder={t('Type the confirmation text here')}
-        mismatchHint={t('The entered text does not match the required text.')}
-        confirmText={t('Confirm and enable')}
-        isLoading={confirmComplianceMutation.isPending}
-        onConfirm={() => confirmComplianceMutation.mutate()}
-      />
-
       <Form {...form}>
         <SettingsForm
           onSubmit={form.handleSubmit(onSubmit)}
-          className={cn(
-            'gap-y-8',
-            !complianceConfirmed && 'pointer-events-none opacity-40'
-          )}
+          className='gap-y-8'
           data-no-autosubmit='true'
         >
           <SettingsPageFormActions
@@ -877,9 +787,10 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[48rem] grid-cols-7'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>Epay</TabsTrigger>
+                <TabsTrigger value='alipay'>Alipay</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
                 <TabsTrigger value='creem'>Creem</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
@@ -916,9 +827,7 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                         <FormDescription>
-                          {t(
-                            'How much to charge for each US dollar of balance (Epay)'
-                          )}
+                          {t('e.g., 8 means 8 local currency per USD')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -930,7 +839,7 @@ export function PaymentSettingsSection({
                     name='MinTopUp'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Minimum top-up (USD)')}</FormLabel>
+                        <FormLabel>{t('Minimum top-up')}</FormLabel>
                         <FormControl>
                           <Input
                             type='number'
@@ -940,7 +849,9 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                         <FormDescription>
-                          {t('Smallest USD amount users can recharge (Epay)')}
+                          {t(
+                            'Minimum recharge amount for Epay online topup. Unit follows the quota display type (USD/CNY/tokens).'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -984,15 +895,19 @@ export function PaymentSettingsSection({
                             onChange={field.onChange}
                           />
                         ) : (
-                          <Textarea
-                            rows={4}
+                          <JsonCodeEditor
+                            value={field.value}
+                            onChange={field.onChange}
+                            name={field.name}
+                            onBlur={field.onBlur}
+                            textareaRef={field.ref}
                             placeholder={t(
                               '[{"name":"支付宝","type":"alipay","icon":"SiAlipay"}]'
                             )}
-                            {...field}
-                            onChange={(event) =>
-                              field.onChange(event.target.value)
-                            }
+                            heightClassName='h-40 min-h-40 max-h-40'
+                            aria-invalid={Boolean(
+                              form.formState.errors.PayMethods
+                            )}
                           />
                         )}
                       </FormControl>
@@ -1045,13 +960,17 @@ export function PaymentSettingsSection({
                               onChange={field.onChange}
                             />
                           ) : (
-                            <Textarea
-                              rows={4}
+                            <JsonCodeEditor
+                              value={field.value}
+                              onChange={field.onChange}
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              textareaRef={field.ref}
                               placeholder='[10, 20, 50, 100]'
-                              {...field}
-                              onChange={(event) =>
-                                field.onChange(event.target.value)
-                              }
+                              heightClassName='h-40 min-h-40 max-h-40'
+                              aria-invalid={Boolean(
+                                form.formState.errors.AmountOptions
+                              )}
                             />
                           )}
                         </FormControl>
@@ -1101,13 +1020,17 @@ export function PaymentSettingsSection({
                               onChange={field.onChange}
                             />
                           ) : (
-                            <Textarea
-                              rows={4}
+                            <JsonCodeEditor
+                              value={field.value}
+                              onChange={field.onChange}
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              textareaRef={field.ref}
                               placeholder='{"100":0.95,"200":0.9}'
-                              {...field}
-                              onChange={(event) =>
-                                field.onChange(event.target.value)
-                              }
+                              heightClassName='h-40 min-h-40 max-h-40'
+                              aria-invalid={Boolean(
+                                form.formState.errors.AmountDiscount
+                              )}
                             />
                           )}
                         </FormControl>
@@ -1238,6 +1161,178 @@ export function PaymentSettingsSection({
                     )}
                   />
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value='alipay' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Alipay Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t(
+                      'Official Alipay gateway settings. Create an app and sign up for "PC Web Payment" or "Mobile Web Payment" in the Alipay Open Platform.'
+                    )}
+                  </p>
+                </div>
+
+                <Alert>
+                  <ShieldAlert className='h-4 w-4' />
+                  <AlertTitle>{t('RSA2 signing')}</AlertTitle>
+                  <AlertDescription>
+                    {t(
+                      'Only RSA2 signing is supported (recommended). Set your application public key in the Alipay Open Platform, then use the Alipay public key here.'
+                    )}
+                  </AlertDescription>
+                </Alert>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='AlipayAppId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('App ID (AppID)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('Application AppId from Alipay Open Platform')}
+                            autoComplete='off'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayMinTopUp'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Minimum Top-Up Amount')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Smallest recharge amount for Alipay. Unit depends on the quota display type (CNY mode: 1 = ¥1).'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='AlipayPrivateKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Application Private Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new key to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Leave blank unless rotating the key')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayPublicKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Alipay Public Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('Enter new key to update')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Alipay public key (not the application public key). Leave blank unless rotating.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name='AlipayNotifyUrl'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Callback address')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={t('https://gateway.example.com')}
+                          autoComplete='off'
+                          {...field}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Only enter the site origin, for example https://api.example.com. Do not include any path such as /api/alipay/notify. Leave blank to use the server address.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='AlipaySandboxEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Sandbox Mode')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Uses the Alipay sandbox environment for testing. Disable it for production.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
               </div>
             </TabsContent>
 

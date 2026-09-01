@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { expect } from 'vitest'
+import { describe, test } from 'vitest'
 
 import {
   EMPTY_LANE_ENABLED,
@@ -54,7 +54,7 @@ describe('getInitialPricingMode', () => {
       billingMode: 'video-per-second',
       videoPrices: videoTable,
     })
-    assert.equal(mode, 'video-per-second')
+    expect(mode).toBe('video-per-second')
   })
 
   test('starts in video-per-second mode when a table exists without an explicit mode', () => {
@@ -62,20 +62,14 @@ describe('getInitialPricingMode', () => {
       ...emptyValues,
       videoPrices: videoTable,
     })
-    assert.equal(mode, 'video-per-second')
+    expect(mode).toBe('video-per-second')
   })
 
   test('keeps the existing tiered_expr, per-request and per-token detection', () => {
-    assert.equal(
-      getInitialPricingMode({ ...emptyValues, billingMode: 'tiered_expr' }),
-      'tiered_expr'
-    )
-    assert.equal(
-      getInitialPricingMode({ ...emptyValues, price: '0.01' }),
-      'per-request'
-    )
-    assert.equal(getInitialPricingMode(emptyValues), 'per-token')
-    assert.equal(getInitialPricingMode(null), 'per-token')
+    expect(getInitialPricingMode({ ...emptyValues, billingMode: 'tiered_expr' })).toBe('tiered_expr')
+    expect(getInitialPricingMode({ ...emptyValues, price: '0.01' })).toBe('per-request')
+    expect(getInitialPricingMode(emptyValues)).toBe('per-token')
+    expect(getInitialPricingMode(null)).toBe('per-token')
   })
 })
 
@@ -87,9 +81,9 @@ describe('buildPricingSubmitData', () => {
       videoPrices: videoTable,
     })
 
-    assert.equal(data.billingMode, 'video-per-second')
-    assert.deepEqual(data.videoPrices, videoTable)
-    assert.equal(data.billingExpr, undefined)
+    expect(data.billingMode).toBe('video-per-second')
+    expect(data.videoPrices).toEqual(videoTable)
+    expect(data.billingExpr).toBe(undefined)
   })
 
   test('tiered_expr payload keeps the expression fields only', () => {
@@ -98,9 +92,9 @@ describe('buildPricingSubmitData', () => {
       requestRuleExpr: '',
     })
 
-    assert.equal(data.billingMode, 'tiered_expr')
-    assert.equal(data.billingExpr, 'tier("base", p * 2)')
-    assert.equal(data.videoPrices, undefined)
+    expect(data.billingMode).toBe('tiered_expr')
+    expect(data.billingExpr).toBe('tier("base", p * 2)')
+    expect(data.videoPrices).toBe(undefined)
   })
 
   test('per-request payload carries the fixed price', () => {
@@ -110,9 +104,9 @@ describe('buildPricingSubmitData', () => {
       { billingExpr: '', requestRuleExpr: '' }
     )
 
-    assert.equal(data.billingMode, 'per-request')
-    assert.equal(data.price, '0.01')
-    assert.equal(data.videoPrices, undefined)
+    expect(data.billingMode).toBe('per-request')
+    expect(data.price).toBe('0.01')
+    expect(data.videoPrices).toBe(undefined)
   })
 })
 
@@ -130,7 +124,7 @@ describe('buildPreviewRows video branch', () => {
       videoTable
     )
 
-    assert.deepEqual(rows, [
+    expect(rows).toEqual([
       { key: 'mode', label: 'BillingMode', value: 'video-per-second' },
       { key: 'videoRows', label: 'Resolution', value: '1080p, 720p' },
     ])
@@ -149,6 +143,6 @@ describe('buildPreviewRows video branch', () => {
       { rows: [] }
     )
 
-    assert.equal(rows[1].value, 'Empty')
+    expect(rows[1].value).toBe('Empty')
   })
 })

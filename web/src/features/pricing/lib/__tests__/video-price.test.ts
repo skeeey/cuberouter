@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { expect } from 'vitest'
+import { describe, test } from 'vitest'
 
 import {
   formatOffPeakHour,
@@ -27,57 +27,55 @@ import {
 
 describe('formatVideoPrice', () => {
   test('renders configured values verbatim without trailing zeros', () => {
-    assert.equal(formatVideoPrice(0.75), '0.75')
-    assert.equal(formatVideoPrice(0.375), '0.375')
-    assert.equal(formatVideoPrice(0.625), '0.625')
-    assert.equal(formatVideoPrice(0.3125), '0.3125')
-    assert.equal(formatVideoPrice(1), '1')
-    assert.equal(formatVideoPrice(0), '0')
+    expect(formatVideoPrice(0.75)).toBe('0.75')
+    expect(formatVideoPrice(0.375)).toBe('0.375')
+    expect(formatVideoPrice(0.625)).toBe('0.625')
+    expect(formatVideoPrice(0.3125)).toBe('0.3125')
+    expect(formatVideoPrice(1)).toBe('1')
+    expect(formatVideoPrice(0)).toBe('0')
   })
 
   test('falls back to a placeholder for non-finite values', () => {
-    assert.equal(formatVideoPrice(Number.NaN), '—')
-    assert.equal(formatVideoPrice(Number.POSITIVE_INFINITY), '—')
+    expect(formatVideoPrice(Number.NaN)).toBe('—')
+    expect(formatVideoPrice(Number.POSITIVE_INFINITY)).toBe('—')
   })
 })
 
 describe('formatOffPeakHour', () => {
   test('formats hours with zero padding', () => {
-    assert.equal(formatOffPeakHour(22), '22:00')
-    assert.equal(formatOffPeakHour(8), '08:00')
-    assert.equal(formatOffPeakHour(0), '00:00')
-    assert.equal(formatOffPeakHour(23), '23:00')
+    expect(formatOffPeakHour(22)).toBe('22:00')
+    expect(formatOffPeakHour(8)).toBe('08:00')
+    expect(formatOffPeakHour(0)).toBe('00:00')
+    expect(formatOffPeakHour(23)).toBe('23:00')
   })
 
   test('rejects out-of-range or fractional hours', () => {
-    assert.equal(formatOffPeakHour(-1), '—')
-    assert.equal(formatOffPeakHour(24), '—')
-    assert.equal(formatOffPeakHour(12.5), '—')
-    assert.equal(formatOffPeakHour(Number.NaN), '—')
+    expect(formatOffPeakHour(-1)).toBe('—')
+    expect(formatOffPeakHour(24)).toBe('—')
+    expect(formatOffPeakHour(12.5)).toBe('—')
+    expect(formatOffPeakHour(Number.NaN)).toBe('—')
   })
 })
 
 describe('getOffPeakWindowLabel', () => {
   test('flags a window crossing midnight', () => {
-    assert.deepEqual(
+    expect(
       getOffPeakWindowLabel({
         start_hour: 22,
         end_hour: 8,
         timezone: 'Asia/Shanghai',
-      }),
-      { start: '22:00', end: '08:00', crossesMidnight: true }
-    )
+      })
+    ).toEqual({ start: '22:00', end: '08:00', crossesMidnight: true })
   })
 
   test('does not flag a same-day window', () => {
-    assert.deepEqual(
+    expect(
       getOffPeakWindowLabel({
         start_hour: 9,
         end_hour: 17,
         timezone: 'Asia/Shanghai',
-      }),
-      { start: '09:00', end: '17:00', crossesMidnight: false }
-    )
+      })
+    ).toEqual({ start: '09:00', end: '17:00', crossesMidnight: false })
   })
 
   test('equal start and end hours do not count as crossing midnight', () => {
@@ -86,26 +84,17 @@ describe('getOffPeakWindowLabel', () => {
       end_hour: 22,
       timezone: 'Asia/Shanghai',
     })
-    assert.equal(label?.crossesMidnight, false)
+    expect(label?.crossesMidnight).toBe(false)
   })
 
   test('returns null when the window is missing or invalid', () => {
-    assert.equal(getOffPeakWindowLabel(undefined), null)
-    assert.equal(
+    expect(getOffPeakWindowLabel(undefined)).toBe(null)
+    expect(
       getOffPeakWindowLabel({
         start_hour: 24,
         end_hour: 8,
         timezone: 'Asia/Shanghai',
-      }),
-      null
-    )
-    assert.equal(
-      getOffPeakWindowLabel({
-        start_hour: 22,
-        end_hour: 24,
-        timezone: 'Asia/Shanghai',
-      }),
-      null
-    )
+      })
+    ).toBe(null)
   })
 })

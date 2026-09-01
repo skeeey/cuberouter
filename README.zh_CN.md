@@ -1,8 +1,8 @@
 <div align="center">
 
-![new-api](/web/public/logo.png)
+![CubeRouter](/web/public/logo.png)
 
-# New API
+# CubeRouter
 
 🍥 **新一代大模型网关与AI资产管理系统**
 
@@ -10,35 +10,17 @@
   简体中文 |
   <a href="./README.zh_TW.md">繁體中文</a> |
   <a href="./README.md">English</a> |
-  <a href="./README.fr.md">Français</a> |
-  <a href="./README.ja.md">日本語</a>
 </p>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/Calcium-Ion/new-api/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Calcium-Ion/new-api?color=brightgreen" alt="license">
+  <a href="https://raw.githubusercontent.com/suanova/cuberouter/main/LICENSE">
+    <img src="https://img.shields.io/github/license/suanova/cuberouter?color=brightgreen" alt="license">
   </a><!--
-  --><a href="https://github.com/Calcium-Ion/new-api/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Calcium-Ion/new-api?color=brightgreen&include_prereleases" alt="release">
+  --><a href="https://github.com/suanova/cuberouter/releases/latest">
+    <img src="https://img.shields.io/github/v/release/suanova/cuberouter?color=brightgreen&include_prereleases" alt="release">
   </a><!--
-  --><a href="https://hub.docker.com/r/CalciumIon/new-api">
-    <img src="https://img.shields.io/badge/docker-dockerHub-blue" alt="docker">
-  </a><!--
-  --><a href="https://goreportcard.com/report/github.com/Calcium-Ion/new-api">
-    <img src="https://goreportcard.com/badge/github.com/Calcium-Ion/new-api" alt="GoReportCard">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/20180" target="_blank">
-    <img src="https://trendshift.io/api/badge/repositories/20180" alt="QuantumNous%2Fnew-api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
-  </a>
-  <br>
-  <a href="https://hellogithub.com/repository/QuantumNous/new-api" target="_blank">
-    <img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=539ac4217e69431684ad4a0bab768811&claim_uid=tbFPfKIDHpc4TzR" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" />
-  </a><!--
-  --><a href="https://www.producthunt.com/products/new-api/launches/new-api?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-new-api" target="_blank" rel="noopener noreferrer">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="New API - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
+  --><a href="https://goreportcard.com/report/github.com/suanova/cuberouter">
+    <img src="https://goreportcard.com/badge/github.com/suanova/cuberouter" alt="GoReportCard">
   </a>
 </p>
 
@@ -46,8 +28,7 @@
   <a href="#-快速开始">快速开始</a> •
   <a href="#-主要特性">主要特性</a> •
   <a href="#-部署">部署</a> •
-  <a href="#-文档">文档</a> •
-  <a href="#-帮助支持">帮助</a>
+  <a href="#-文档">文档</a>
 </p>
 
 </div>
@@ -62,57 +43,14 @@
 
 ---
 
-## 🤝 我们信任的合作伙伴
-
-<p align="center">
-  <em>排名不分先后</em>
-</p>
-
-<p align="center">
-  <a href="https://www.cherry-ai.com/" target="_blank">
-    <img src="./docs/images/cherry-studio.png" alt="Cherry Studio" height="80" />
-  </a><!--
-  --><a href="https://github.com/iOfficeAI/AionUi/" target="_blank">
-    <img src="./docs/images/aionui.png" alt="Aion UI" height="80" />
-  </a><!--
-  --><a href="https://bda.pku.edu.cn/" target="_blank">
-    <img src="./docs/images/pku.png" alt="北京大学" height="80" />
-  </a><!--
-  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_newapi" target="_blank">
-    <img src="./docs/images/ucloud.png" alt="UCloud 优刻得" height="80" />
-  </a><!--
-  --><a href="https://www.aliyun.com/" target="_blank">
-    <img src="./docs/images/aliyun.png" alt="阿里云" height="80" />
-  </a><!--
-  --><a href="https://io.net/" target="_blank">
-    <img src="./docs/images/io-net.png" alt="IO.NET" height="80" />
-  </a>
-</p>
-
----
-
-## 🙏 特别鸣谢
-
-<p align="center">
-  <a href="https://www.jetbrains.com/?from=new-api" target="_blank">
-    <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.png" alt="JetBrains Logo" width="120" />
-  </a>
-</p>
-
-<p align="center">
-  <strong>感谢 <a href="https://www.jetbrains.com/?from=new-api">JetBrains</a> 为本项目提供免费的开源开发许可证</strong>
-</p>
-
----
-
 ## 🚀 快速开始
 
 ### 使用 Docker Compose（推荐）
 
 ```bash
 # 克隆项目
-git clone https://github.com/QuantumNous/new-api.git
-cd new-api
+git clone https://github.com/suanova/cuberouter.git
+cd cuberouter
 
 # 编辑 docker-compose.yml 配置
 nano docker-compose.yml
@@ -126,22 +64,22 @@ docker-compose up -d
 
 ```bash
 # 拉取最新镜像
-docker pull calciumion/new-api:latest
+docker pull harbor.isuanova.com/suanova/cuberouter:latest
 
 # 使用 SQLite（默认）
-docker run --name new-api -d --restart always \
+docker run --name cuberouter -d --restart always \
   -p 3000:3000 \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
-  calciumion/new-api:latest
+  harbor.isuanova.com/suanova/cuberouter:latest
 
 # 使用 MySQL
-docker run --name new-api -d --restart always \
+docker run --name cuberouter -d --restart always \
   -p 3000:3000 \
   -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
-  calciumion/new-api:latest
+  harbor.isuanova.com/suanova/cuberouter:latest
 ```
 
 > **💡 提示：** `-v ./data:/data` 会将数据保存在当前目录的 `data` 文件夹中，你也可以改为绝对路径如 `-v /your/custom/path:/data`
@@ -163,7 +101,7 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 📖 [官方文档](https://docs.newapi.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
+### 📖 [官方文档](https://docs.newapi.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/suanova/cuberouter)
 
 </div>
 
@@ -295,7 +233,7 @@ docker run --name new-api -d --restart always \
 ## 🚢 部署
 
 > [!TIP]
-> **最新版 Docker 镜像：** `calciumion/new-api:latest`
+> **最新版 Docker 镜像：** `harbor.isuanova.com/suanova/cuberouter:latest`
 
 ### 📋 部署要求
 
@@ -316,6 +254,9 @@ docker run --name new-api -d --restart always \
 | `SESSION_SECRET` | 鉴权签名密钥；所有节点必须保持一致                                           | - |
 | `SESSION_COOKIE_SECURE` | `false`/未配置时关闭 refresh/logout OriginGuard 以兼容本地 HTTP 开发代理；`true` 时启用 Secure Cookie 和严格 Origin 校验 | `false` |
 | `SESSION_COOKIE_TRUSTED_URL` | Secure 模式必填：允许调用 refresh/logout 的精确 HTTPS Origin，多个用英文逗号分隔；不是 relay CORS 白名单 | - |
+| `TLS_CERT_FILE` | HTTPS 证书文件（PEM）；与 `TLS_KEY_FILE` 成对设置后启用 HTTPS 监听 | - |
+| `TLS_KEY_FILE` | HTTPS 私钥文件（PEM）；必须与 `TLS_CERT_FILE` 成对设置 | - |
+| `TLS_PORT` | HTTPS 监听端口 | `443` |
 | `TRUSTED_PROXIES` | 未配置/留空时信任回环、RFC1918 和 IPv6 ULA 并输出启动告警；`none` 不信任任何代理；显式代理 IP/CIDR 列表完全替代默认值 | `127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7` |
 | `USER_SESSION_ACTIVE_LIMIT` | 单用户最大活跃登录 Session 数 | `50` |
 | `USER_SESSION_ISSUANCE_LIMIT` | 单用户在签发窗口内可创建的 Session 总数，包含已撤销 Session | `100` |
@@ -342,6 +283,31 @@ docker run --name new-api -d --restart always \
 
 </details>
 
+### 🔒 HTTPS (TLS)
+
+HTTPS 为可选项：设置 `TLS_CERT_FILE` + `TLS_KEY_FILE`（PEM，必须成对）后，网关将在 `TLS_PORT`（默认 `443`）上额外提供 HTTPS 服务，原有 HTTP 端口不受影响；不设置则行为与之前完全一致。
+
+私有网络环境可使用 `scripts/gen-tls-cert.sh` 按你的情况生成证书：
+
+| 场景 | 命令 |
+|------|------|
+| **有私有 CA（证书+私钥）** | `scripts/gen-tls-cert.sh --ca-cert ca.pem --ca-key ca.key --domains "gw.corp.local" --ips "10.0.0.5"` |
+| **没有 CA** | `scripts/gen-tls-cert.sh --domains "gw.corp.local" --ips "10.0.0.5"`（自动生成根 CA，供客户端分发） |
+| **只有 CA 证书、无私钥** | `scripts/gen-tls-cert.sh --ca-cert ca.pem --domains "gw.corp.local"`（自签服务端证书） |
+
+- SAN（域名/IP）为必填；不带参数运行可进入交互式引导
+- 产物输出到 `./certs/`（可用 `--out` 修改）：`server.crt`（完整证书链）、`server.key`（权限 `0600`），生成 CA 时还有 `ca.crt`——将 `ca.crt` 分发给客户端导入信任库，HTTPS 访问将不再告警
+- 续期：重新执行同一条命令覆盖即可（例如每年一次）
+
+**客户端信任（二选一）：**
+
+| 方式 | 操作 | 适用 |
+|------|------|------|
+| 装系统信任库 | 将 `ca.crt`（根 CA，不是 `server.crt`）导入每台机器的系统/浏览器信任库 | 所有客户端自动受信但需要向用户分发 CA |
+| 客户端显式配置 | `curl --cacert ca.crt`、`SSL_CERT_FILE=ca.crt`（Go/curl）、`NODE_EXTRA_CA_CERTS`（Node）、`REQUESTS_CA_BUNDLE`（Python） | 每个客户端工具需分别配置 |
+
+LLM 客户端工具（Claude Code、opencode 等）通常读取环境变量，设置 `SSL_CERT_FILE` 或 `NODE_EXTRA_CA_CERTS` 即可。
+
 ### 🔧 部署方式
 
 <details>
@@ -349,8 +315,8 @@ docker run --name new-api -d --restart always \
 
 ```bash
 # 克隆项目
-git clone https://github.com/QuantumNous/new-api.git
-cd new-api
+git clone https://github.com/suanova/cuberouter.git
+cd cuberouter
 
 # 编辑配置
 nano docker-compose.yml
@@ -366,21 +332,21 @@ docker-compose up -d
 
 **使用 SQLite：**
 ```bash
-docker run --name new-api -d --restart always \
+docker run --name cuberouter -d --restart always \
   -p 3000:3000 \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
-  calciumion/new-api:latest
+  harbor.isuanova.com/suanova/cuberouter:latest
 ```
 
 **使用 MySQL：**
 ```bash
-docker run --name new-api -d --restart always \
+docker run --name cuberouter -d --restart always \
   -p 3000:3000 \
   -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
-  calciumion/new-api:latest
+  harbor.isuanova.com/suanova/cuberouter:latest
 ```
 
 > **💡 路径说明：**
@@ -446,28 +412,6 @@ Token、Origin 校验和 PAT 契约见[用户鉴权与登录会话](./docs/authe
 
 ---
 
-## 💬 帮助支持
-
-### 📖 文档资源
-
-| 资源 | 链接 |
-|------|------|
-| 📘 常见问题 | [FAQ](https://docs.newapi.pro/zh/docs/support/faq) |
-| 💬 社区交流 | [交流渠道](https://docs.newapi.pro/zh/docs/support/community-interaction) |
-| 🐛 反馈问题 | [问题反馈](https://docs.newapi.pro/zh/docs/support/feedback-issues) |
-| 📚 完整文档 | [官方文档](https://docs.newapi.pro/zh/docs) |
-
-### 🤝 贡献指南
-
-欢迎各种形式的贡献！
-
-- 🐛 报告 Bug
-- 💡 提出新功能
-- 📝 改进文档
-- 🔧 提交代码
-
----
-
 ## 📜 许可证
 
 本项目采用 [GNU Affero 通用公共许可证 v3.0 (AGPLv3)](./LICENSE) 授权。
@@ -477,25 +421,3 @@ Token、Origin 校验和 PAT 契约见[用户鉴权与登录会话](./docs/authe
 如果您所在的组织政策不允许使用 AGPLv3 许可的软件，或您希望规避 AGPLv3 的开源义务，请发送邮件至：[support@quantumnous.com](mailto:support@quantumnous.com)
 
 ---
-
-## 🌟 Star History
-
-<div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Calcium-Ion/new-api&type=Date)](https://star-history.com/#Calcium-Ion/new-api&Date)
-
-</div>
-
----
-
-<div align="center">
-
-### 💖 感谢使用 New API
-
-如果这个项目对你有帮助，欢迎给我们一个 ⭐️ Star！
-
-**[官方文档](https://docs.newapi.pro/zh/docs)** • **[问题反馈](https://github.com/Calcium-Ion/new-api/issues)** • **[最新发布](https://github.com/Calcium-Ion/new-api/releases)**
-
-<sub>Built with ❤️ by QuantumNous</sub>
-
-</div>

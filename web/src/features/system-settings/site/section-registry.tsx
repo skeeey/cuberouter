@@ -42,9 +42,14 @@ const SITE_SECTIONS = [
           About: settings.About,
           HomePageContent: settings.HomePageContent,
           ServerAddress: settings.ServerAddress,
+          TaskPublicAddress: settings.TaskPublicAddress,
           legal: {
             user_agreement: settings['legal.user_agreement'],
             privacy_policy: settings['legal.privacy_policy'],
+          },
+          general_setting: {
+            docs_link: settings['general_setting.docs_link'],
+            admin_docs_link: settings['general_setting.admin_docs_link'],
           },
         }}
       />

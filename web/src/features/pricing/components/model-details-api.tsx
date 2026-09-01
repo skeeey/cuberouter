@@ -106,10 +106,10 @@ function buildChatSample(lang: Lang, ctx: SampleContext): string {
 
   if (lang === 'curl') {
     return [
-      `curl ${url} \\`,
+      `curl -X POST ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${bodyJson.replace(/\n/g, '\n     ')}'`,
+      `  -d '${bodyJson.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
 
@@ -173,11 +173,11 @@ function buildAnthropicSample(lang: Lang, ctx: SampleContext): string {
       2
     )
     return [
-      `curl ${url} \\`,
+      `curl -X POST ${url} \\`,
       `  -H "x-api-key: $${ctx.apiKeyEnv}" \\`,
       `  -H "anthropic-version: 2023-06-01" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -247,9 +247,9 @@ function buildGeminiSample(lang: Lang, ctx: SampleContext): string {
       2
     )
     return [
-      `curl '${url}' \\`,
+      `curl -X POST '${url}' \\`,
       `  -H 'Content-Type: application/json' \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -296,10 +296,10 @@ function buildEmbeddingSample(lang: Lang, ctx: SampleContext): string {
   if (lang === 'curl') {
     const body = JSON.stringify({ model: ctx.modelName, input: text }, null, 2)
     return [
-      `curl ${url} \\`,
+      `curl -X POST ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -362,10 +362,10 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
       2
     )
     return [
-      `curl ${url} \\`,
+      `curl -X POST ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -423,9 +423,10 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
-// 视频生成示例:提交 POST /v1/video/generations,轮询 GET /v1/video/generations/{task_id}。
-// 请求参数 model / prompt / size(分辨率)/ duration(秒)与网关任务 API 一致。
-function buildVideoSample(lang: Lang, ctx: SampleContext): string {
+// 视频按秒定价模型的示例:提交 POST /v1/video/generations,轮询
+// GET /v1/video/generations/{task_id}。请求参数 model / prompt / size(分辨率)/
+// duration(秒)与网关任务 API 一致(OpenAI 视频风格,区别于 Ark 风格示例)。
+function buildPerSecondVideoSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const prompt = 'A serene koi pond at sunset, ukiyo-e style.'
   const body = JSON.stringify(
@@ -498,17 +499,192 @@ function buildVideoSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+function buildVideoSample(lang: Lang, ctx: SampleContext): string {
+  // Async video generation (Seedance). Three-step flow:
+  //   1) POST {submitUrl}            -> {"id": "vt_...", "status": "queued"}
+  //   2) GET  {submitUrl}/{id}       -> poll until status is "succeeded"
+  //   3) download content.video_url from the succeeded response
+  // The submit body follows the Ark-style content array accepted by video
+  // channels: exactly one text item as the prompt, plus image/video/audio
+  // reference items. Media is routed by content[].type — the upstream does
+  // not use a role field. model/content/duration/ratio are required;
+  // resolution is optional (model-fixed upstream when omitted). The legacy prompt/
+  // images/seconds/size fields are still accepted when content is absent.
+  const url = `${ctx.baseUrl}/v1/videos/generations/tasks`
+  const body = {
+    model: ctx.modelName,
+    content: [
+      {
+        type: 'text',
+        text: 'Dance performance following the reference style.',
+      },
+      {
+        type: 'image_url',
+        image_url: { url: 'https://example.com/style_ref.jpg' },
+      },
+      {
+        type: 'video_url',
+        video_url: { url: 'https://example.com/motion_ref.mp4' },
+      },
+      {
+        type: 'audio_url',
+        audio_url: { url: 'https://example.com/music_ref.mp3' },
+      },
+    ],
+    duration: 10,
+    ratio: '16:9',
+  }
+  const bodyJson = JSON.stringify(body, null, 2)
+
+  if (lang === 'curl') {
+    return [
+      `# 1. Submit a video generation task. Save the returned id.`,
+      `curl -X POST ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${bodyJson.replaceAll('\n', '\n     ')}'`,
+      `# => {"id": "vt_xxxx", "status": "queued", ...}`,
+      '',
+      `# 2. Poll the task status with the id from step 1.`,
+      `curl ${url}/vt_xxxx \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}"`,
+      `# => {"id":"vt_xxxx","status":"queued|running|succeeded|failed|expired",...}`,
+      '',
+      `# 3. Once status is "succeeded", download the video. VIDEO_URL is the`,
+      `#    value of content.video_url in the step 2 response.`,
+      `curl -L -o video.mp4 "$VIDEO_URL"`,
+    ].join('\n')
+  }
+
+  if (lang === 'python') {
+    return [
+      'import time',
+      '',
+      'import requests',
+      '',
+      `url = "${url}"`,
+      'headers = {',
+      '    "Authorization": "Bearer <YOUR_API_KEY>",',
+      '    "Content-Type": "application/json",',
+      '}',
+      '',
+      `payload = ${bodyJson.replaceAll('\n', '\n    ')}`,
+      '',
+      '# 1. Submit the task and keep the returned id.',
+      'task = requests.post(url, headers=headers, json=payload).json()',
+      'task_id = task["id"]',
+      '',
+      '# 2. Poll until a terminal status is reached.',
+      'while task["status"] not in ("succeeded", "failed", "expired"):',
+      '    time.sleep(2)',
+      '    task = requests.get(f"{url}/{task_id}", headers=headers).json()',
+      '',
+      '# 3. Download only a succeeded task with a video URL. The video URL is',
+      '#    upstream-provided and must not receive the API Authorization header.',
+      'if task["status"] != "succeeded" or "video_url" not in task.get("content", {}):',
+      '    raise SystemExit("task " + task_id + " ended with " + task["status"])',
+      'video = requests.get(task["content"]["video_url"])',
+      'with open("video.mp4", "wb") as f:',
+      '    f.write(video.content)',
+    ].join('\n')
+  }
+
+  if (lang === 'typescript') {
+    return [
+      `import { writeFile } from 'node:fs/promises'`,
+      '',
+      `const headers = {`,
+      `  Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+      `  'Content-Type': 'application/json',`,
+      `}`,
+      '',
+      `// 1. Submit a task and keep the returned id.`,
+      `const created = await fetch('${url}', {`,
+      `  method: 'POST',`,
+      `  headers,`,
+      `  body: JSON.stringify(${bodyJson.replaceAll('\n', '\n  ')}),`,
+      `})`,
+      `const { id: taskId } = await created.json()`,
+      '',
+      `// 2. Poll until a terminal status is reached.`,
+      `let status = 'queued'`,
+      `let task: Record<string, any> = { status: 'queued' }`,
+      `while (!['succeeded', 'failed', 'expired'].includes(status)) {`,
+      `  task = await (`,
+      `    await fetch(\`${url}/\${taskId}\`, { headers })`,
+      `  ).json()`,
+      `  status = task.status`,
+      `  if (!['succeeded', 'failed', 'expired'].includes(status)) {`,
+      `    await new Promise((resolve) => setTimeout(resolve, 2000))`,
+      `  }`,
+      `}`,
+      '',
+      `// 3. Download only a succeeded task. The video URL is upstream-provided`,
+      `//    and must not receive the API Authorization header.`,
+      `if (status !== 'succeeded' || !task.content || !task.content.video_url) {`,
+      `  throw new Error(\`task \${taskId} ended with status \${status}\`)`,
+      `}`,
+      `const video = await fetch(task.content.video_url)`,
+      `await writeFile('video.mp4', Buffer.from(await video.arrayBuffer()))`,
+    ].join('\n')
+  }
+
+  return [
+    `const { writeFile } = await import('node:fs/promises')`,
+    '',
+    `// 1. Submit a task and keep the returned id.`,
+    `const created = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type': 'application/json',`,
+    `  },`,
+    `  body: JSON.stringify(${bodyJson.replaceAll('\n', '\n  ')}),`,
+    `})`,
+    `const { id: taskId } = await created.json()`,
+    '',
+    `// 2. Poll until a terminal status is reached.`,
+    `let status = 'queued'`,
+    `let task = { status: 'queued' }`,
+    `while (!['succeeded', 'failed', 'expired'].includes(status)) {`,
+    `  task = await (await fetch(\`${url}/\${taskId}\`, {`,
+    `    headers: {`,
+    `      Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    },`,
+    `  })).json()`,
+    `  status = task.status`,
+    `  if (!['succeeded', 'failed', 'expired'].includes(status)) {`,
+    `    await new Promise((resolve) => setTimeout(resolve, 2000))`,
+    `  }`,
+    `}`,
+    '',
+    `// 3. Download only a succeeded task. The video URL is upstream-provided`,
+    `//    and must not receive the API Authorization header.`,
+    `if (status !== 'succeeded' || !task.content || !task.content.video_url) {`,
+    `  throw new Error(\`task \${taskId} ended with status \${status}\`)`,
+    `}`,
+    `const video = await fetch(task.content.video_url)`,
+    `await writeFile('video.mp4', Buffer.from(await video.arrayBuffer()))`,
+  ].join('\n')
+}
+
 function buildSample(
   lang: Lang,
   endpointType: string,
   ctx: SampleContext
 ): string {
-  if (endpointType === 'video') return buildVideoSample(lang, ctx)
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
-  if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
+  if (endpointType === 'embeddings' || endpointType === 'jina-rerank') {
     return buildEmbeddingSample(lang, ctx)
+  }
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
+  if (endpointType === 'per-second-video') {
+    return buildPerSecondVideoSample(lang, ctx)
+  }
+  if (endpointType === 'openai-video' || endpointType === 'ark-video') {
+    return buildVideoSample(lang, ctx)
+  }
   return buildChatSample(lang, ctx)
 }
 
@@ -538,8 +714,8 @@ function CodeSamplesSection(props: {
 
   const endpoints = useMemo(() => {
     if (props.model.video_prices) {
-      // 视频按秒模型走 OpenAI 兼容视频端点,示例固定为 /v1/video/generations
-      return [{ type: 'video', path: '/v1/video/generations', method: 'POST' }]
+      // 视频按秒计费模型:示例固定为 OpenAI 风格视频生成端点
+      return [{ type: 'per-second-video', path: '/v1/video/generations', method: 'POST' }]
     }
     const types = props.model.supported_endpoint_types || []
     return types
@@ -569,7 +745,7 @@ function CodeSamplesSection(props: {
 
   const code = buildSample(lang, activeEndpoint.type, {
     baseUrl,
-    apiKeyEnv: 'NEW_API_KEY',
+    apiKeyEnv: 'CR_API_KEY',
     modelName: props.model.model_name || '',
     endpointType: activeEndpoint.type,
     endpointPath: activeEndpoint.path,

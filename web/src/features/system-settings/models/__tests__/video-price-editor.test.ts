@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { expect } from 'vitest'
+import { describe, test } from 'vitest'
 
 import {
   addVideoPriceRowDraft,
@@ -41,20 +41,20 @@ describe('video price editor drafts', () => {
       ],
     })
 
-    assert.equal(drafts.length, 1)
+    expect(drafts.length).toBe(1)
     const [row] = drafts
-    assert.equal(typeof row.id, 'string')
-    assert.equal(row.resolution, '1080p')
-    assert.equal(row.normalPrice, '0.75')
-    assert.equal(row.offPeakPrice, '0.375')
+    expect(typeof row.id).toBe('string')
+    expect(row.resolution).toBe('1080p')
+    expect(row.normalPrice).toBe('0.75')
+    expect(row.offPeakPrice).toBe('0.375')
   })
 
   test('adding a row and editing values emits a table with the filled row', () => {
     let drafts = addVideoPriceRowDraft([])
-    assert.equal(drafts.length, 1)
-    assert.equal(drafts[0].resolution, '')
-    assert.equal(drafts[0].normalPrice, '')
-    assert.equal(drafts[0].offPeakPrice, '')
+    expect(drafts.length).toBe(1)
+    expect(drafts[0].resolution).toBe('')
+    expect(drafts[0].normalPrice).toBe('')
+    expect(drafts[0].offPeakPrice).toBe('')
 
     drafts = addVideoPriceRowDraft(drafts)
     drafts = updateVideoPriceRowDraft(drafts, 0, {
@@ -64,7 +64,7 @@ describe('video price editor drafts', () => {
     })
 
     const table = videoPriceTableFromDrafts(drafts)
-    assert.deepEqual(table, {
+    expect(table).toEqual({
       rows: [
         { resolution: '1080p', normal_price: 0.75, off_peak_price: 0.375 },
       ],
@@ -82,7 +82,7 @@ describe('video price editor drafts', () => {
     drafts = removeVideoPriceRowDraft(drafts, 0)
 
     const table = videoPriceTableFromDrafts(drafts)
-    assert.deepEqual(table.rows, [
+    expect(table.rows).toEqual([
       { resolution: '720p', normal_price: 0.625, off_peak_price: 0.3125 },
     ])
   })
@@ -92,8 +92,8 @@ describe('video price editor drafts', () => {
       draft({ resolution: ' 1080p ', normalPrice: '0.75', offPeakPrice: '0.5' }),
     ])
 
-    assert.equal(table.rows[0].resolution, '1080p')
-    assert.equal(table.rows[0].normal_price, 0.75)
+    expect(table.rows[0].resolution).toBe('1080p')
+    expect(table.rows[0].normal_price).toBe(0.75)
   })
 
   test('keeps partially filled rows for backend validation', () => {
@@ -102,7 +102,7 @@ describe('video price editor drafts', () => {
       draft(),
     ])
 
-    assert.deepEqual(table.rows, [
+    expect(table.rows).toEqual([
       { resolution: '4K', normal_price: 0, off_peak_price: 0 },
     ])
   })
@@ -112,7 +112,7 @@ describe('video price editor drafts', () => {
       draft({ resolution: '1080p', normalPrice: '0.75', offPeakPrice: '0' }),
     ])
 
-    assert.deepEqual(table.rows, [
+    expect(table.rows).toEqual([
       { resolution: '1080p', normal_price: 0.75, off_peak_price: 0 },
     ])
   })

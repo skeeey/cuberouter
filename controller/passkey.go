@@ -45,7 +45,6 @@ func parsePasskeyFinishRequest(c *gin.Context) (*passkeyFinishRequest, error) {
 	}
 	return &request, nil
 }
-
 func PasskeyRegisterBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -123,7 +122,6 @@ func PasskeyRegisterBegin(c *gin.Context) {
 		},
 	})
 }
-
 func PasskeyRegisterFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -217,7 +215,6 @@ func PasskeyRegisterFinish(c *gin.Context) {
 		"data":    authRotationData(bundle),
 	})
 }
-
 func PasskeyDelete(c *gin.Context) {
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
@@ -254,7 +251,6 @@ func PasskeyDelete(c *gin.Context) {
 		"data":    authRotationData(bundle),
 	})
 }
-
 func PasskeyStatus(c *gin.Context) {
 	user, err := getAuthenticatedUser(c)
 	if err != nil {
@@ -292,7 +288,6 @@ func PasskeyStatus(c *gin.Context) {
 		"data":    data,
 	})
 }
-
 func PasskeyLoginBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -336,7 +331,6 @@ func PasskeyLoginBegin(c *gin.Context) {
 		},
 	})
 }
-
 func PasskeyLoginFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -483,7 +477,6 @@ func AdminResetPasskey(c *gin.Context) {
 		"message": "Passkey 已重置",
 	})
 }
-
 func PasskeyVerifyBegin(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -560,7 +553,6 @@ func PasskeyVerifyBegin(c *gin.Context) {
 		},
 	})
 }
-
 func PasskeyVerifyFinish(c *gin.Context) {
 	if !system_setting.GetPasskeySettings().Enabled {
 		c.JSON(http.StatusOK, gin.H{

@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
@@ -12,7 +13,15 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
-	apiRouter := router.Group("/api")
+	registerApiRoutes(router.Group("/api"))
+	registerApiRoutes(router.Group("/api/v1"))
+	registerApiRoutes(router.Group("/api/v2"))
+}
+
+// registerApiRoutes 注册 /api 前缀下的全部内部路由。SetApiRouter 将其挂到
+// /api、/api/v1 与 /api/v2 三前缀（对外第三方收敛接口的稳定契约前缀，见
+// controller/aggregated_api.go）。三套前缀共享同一组 handler 与中间件。
+func registerApiRoutes(apiRouter *gin.RouterGroup) {
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
@@ -61,6 +70,7 @@ func SetApiRouter(router *gin.Engine) {
 		// :env separates test vs prod URLs so the operator can register each
 		// in Pancake's matching webhook slot; handler enforces env match.
 		apiRouter.POST("/waffo-pancake/webhook/:env", anonymousRequestBodyLimit, controller.WaffoPancakeWebhook)
+		apiRouter.POST("/alipay/notify", anonymousRequestBodyLimit, controller.AlipayNotify)
 
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UniversalVerify)
@@ -70,6 +80,7 @@ func SetApiRouter(router *gin.Engine) {
 			userRoute.POST("/auth/refresh", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RefreshAuth)
 			userRoute.POST("/auth/logout", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AuthLogout)
 			userRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Register)
+			userRoute.GET("/login/encryption-key", middleware.DisableCache(), controller.GetPasswordEncryptionKey)
 			userRoute.POST("/login", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Login)
 			userRoute.POST("/login/2fa", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.Verify2FALogin)
 			userRoute.POST("/passkey/login/begin", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.PasskeyLoginBegin)
@@ -90,7 +101,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
 				selfRoute.DELETE("/self", controller.DeleteSelf)
-				selfRoute.GET("/token", middleware.DisableCache(), controller.GenerateAccessToken)
+				selfRoute.GET("/token", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), middleware.DisableCache(), controller.GenerateAccessToken)
 				selfRoute.GET("/passkey", controller.PasskeyStatus)
 				selfRoute.POST("/passkey/register/begin", middleware.DisableCache(), controller.PasskeyRegisterBegin)
 				selfRoute.POST("/passkey/register/finish", middleware.DisableCache(), controller.PasskeyRegisterFinish)
@@ -105,12 +116,14 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/amount", controller.RequestAmount)
 				selfRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.RequestStripePay)
 				selfRoute.POST("/stripe/amount", controller.RequestStripeAmount)
+				selfRoute.POST("/alipay/pay", middleware.CriticalRateLimit(), controller.RequestAlipayPay)
+				selfRoute.POST("/alipay/amount", controller.RequestAlipayAmount)
 				selfRoute.POST("/creem/pay", middleware.CriticalRateLimit(), controller.RequestCreemPay)
 				selfRoute.POST("/waffo/amount", controller.RequestWaffoAmount)
 				selfRoute.POST("/waffo/pay", middleware.CriticalRateLimit(), controller.RequestWaffoPay)
 				selfRoute.POST("/waffo-pancake/amount", controller.RequestWaffoPancakeAmount)
 				selfRoute.POST("/waffo-pancake/pay", middleware.CriticalRateLimit(), controller.RequestWaffoPancakePay)
-				selfRoute.POST("/aff_transfer", controller.TransferAffQuota)
+				selfRoute.POST("/aff_transfer", middleware.UserCriticalRateLimit("aff-transfer"), controller.TransferAffQuota)
 				selfRoute.PUT("/setting", controller.UpdateUserSetting)
 
 				// 2FA routes
@@ -136,12 +149,18 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/topup", controller.GetAllTopUps)
 				adminRoute.POST("/topup/complete", controller.AdminCompleteTopUp)
 				adminRoute.GET("/search", controller.SearchUsers)
+				adminRoute.GET("/columns", controller.GetUserColumns)
 				adminRoute.GET("/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin)
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
+				// 更具体的子路径在前，防御通配冲突（Gin radix tree 当前正确处理，
+				// 但显式顺序更安全；详见 router/user_invitees_route_test.go）
+				adminRoute.GET("/:id/invitees", controller.GetUserInvitees)
+				adminRoute.GET("/:id/quota-dates", controller.GetUserQuotaDatesByAdmin)
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
+				adminRoute.POST("/export", controller.ExportUsers)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
@@ -193,7 +212,6 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
-			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
 			optionRoute.POST("/rest_model_ratio", controller.ResetModelRatio)
@@ -231,6 +249,23 @@ func SetApiRouter(router *gin.Engine) {
 			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
 			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
 		}
+		taskPluginRoute := apiRouter.Group("/plugin/task")
+		taskPluginRoute.Use(middleware.RootAuth())
+		{
+			taskPluginRoute.GET("", controller.ListTaskPlugins)
+			taskPluginRoute.POST("", controller.UploadTaskPlugin)
+			taskPluginRoute.PUT("", controller.UploadTaskPlugin)
+			taskPluginRoute.GET("/runtime/status", controller.GetTaskPluginRuntime)
+			taskPluginRoute.GET("/marketplace/sources", controller.GetTaskPluginMarketplaceSources)
+			taskPluginRoute.PUT("/marketplace/sources", controller.UpdateTaskPluginMarketplaceSources)
+			taskPluginRoute.GET("/:key", controller.GetTaskPlugin)
+			taskPluginRoute.GET("/:key/versions", controller.GetTaskPluginVersions)
+			taskPluginRoute.POST("/:key/activate", controller.ActivateTaskPlugin)
+			taskPluginRoute.POST("/:key/status", controller.SetTaskPluginStatus)
+			taskPluginRoute.POST("/:key/dryrun", controller.DryRunTaskPlugin)
+			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
+		}
+		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
@@ -238,6 +273,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
+			tokenRoute.GET("/auto-groups", controller.GetTokenAutoGroups)
 			tokenRoute.GET("/:id", controller.GetToken)
 			tokenRoute.POST("/:id/key", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKey)
 			tokenRoute.POST("/", controller.AddToken)
@@ -305,6 +341,13 @@ func SetApiRouter(router *gin.Engine) {
 			opsUserRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchOpsInvitees)
 			opsUserRoute.POST("/export", middleware.CriticalRateLimit(), controller.ExportOpsInvitees)
 		}
+
+		// User billing report (ops — read-only, filtered by inviter_id = current user for ops role)
+		opsDataRoute := apiRouter.Group("/ops/data")
+		opsDataRoute.Use(middleware.OpsAuth())
+		{
+			opsDataRoute.GET("/billing", controller.GetOpsBillingReport)
+		}
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
@@ -336,6 +379,8 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
+		dataRoute.GET("/billing", middleware.AdminAuth(), controller.GetUserBillingReport)
+		dataRoute.GET("/reconciliation", middleware.AdminAuth(), controller.GetReconciliationReport)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
@@ -379,7 +424,8 @@ func SetApiRouter(router *gin.Engine) {
 		taskRoute := apiRouter.Group("/task")
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
-			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+			taskRoute.GET("", middleware.AdminAuth(), controller.GetAllTask)
+			taskRoute.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")
@@ -431,6 +477,29 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.PUT("/:id/name", controller.UpdateDeploymentName)
 			deploymentsRoute.POST("/:id/extend", controller.ExtendDeployment)
 			deploymentsRoute.DELETE("/:id", controller.DeleteDeployment)
+		}
+
+		// 聚合 API（对外第三方收敛接口，见 controller/aggregated_api.go）。
+		// 双路径注册（"" + "/"）防止 Gin 尾斜杠 307 重定向：POST 重定向
+		// 多数客户端不跟随，会丢 body。
+		aggregatedUserRoute := apiRouter.Group("/users")
+		aggregatedUserRoute.Use(middleware.AdminAuth())
+		{
+			aggregatedUserRoute.POST("", controller.AggregatedCreateUser)
+			aggregatedUserRoute.POST("/", controller.AggregatedCreateUser)
+			aggregatedUserRoute.POST("/:user_id/suspend", controller.AggregatedSuspendUser)
+			aggregatedUserRoute.POST("/:user_id/reactivate", controller.AggregatedReactivateUser)
+			aggregatedUserRoute.POST("/:user_id/reset-password", controller.AggregatedResetUserPassword)
+			aggregatedUserRoute.POST("/:user_id/adjust-quota", controller.AggregatedAdjustQuota)
+			aggregatedUserRoute.GET("/:user_id/status", controller.AggregatedGetUserStatus)
+			aggregatedUserRoute.POST("/:user_id/bind-subscription", controller.AggregatedBindSubscription)
+			aggregatedUserRoute.POST("/:user_id/delete", controller.AggregatedDeleteUser)
+		}
+		aggregatedPlanRoute := apiRouter.Group("/plans")
+		aggregatedPlanRoute.Use(middleware.AdminAuth())
+		{
+			aggregatedPlanRoute.POST("", controller.AggregatedCreatePlan)
+			aggregatedPlanRoute.POST("/", controller.AggregatedCreatePlan)
 		}
 	}
 }

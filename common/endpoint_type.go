@@ -29,7 +29,35 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 	case constant.ChannelTypeXai:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
 	case constant.ChannelTypeSora:
+		fallthrough
+	case constant.ChannelTypeDoubaoVideo:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+	case constant.ChannelTypeAstraFlow:
+		// AstraFlow 是多模态渠道：视频模型（Seedance）走 Ark 风格任务端点
+		// （/v1/videos/generations/tasks），端点类型标注为 ark-video 而非
+		// openai-video；其余模型按 OpenAI 文本/响应端点暴露。
+		if IsOpenAIVideoModel(modelName) {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeArkVideo}
+		} else if IsOpenAIResponseOnlyModel(modelName) {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIResponse}
+		} else {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
+		}
+	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
+		endpointTypes = []constant.EndpointType{
+			constant.EndpointTypeOpenAI,
+			constant.EndpointTypeOpenAIResponse,
+			constant.EndpointTypeOpenAIResponseCompact,
+			constant.EndpointTypeAnthropic,
+			constant.EndpointTypeGemini,
+			constant.EndpointTypeOpenAIAlphaSearch,
+		}
+	case constant.ChannelTypeCodex:
+		endpointTypes = []constant.EndpointType{
+			constant.EndpointTypeOpenAIResponse,
+			constant.EndpointTypeOpenAIResponseCompact,
+			constant.EndpointTypeOpenAIAlphaSearch,
+		}
 	default:
 		if IsOpenAIResponseOnlyModel(modelName) {
 			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIResponse}

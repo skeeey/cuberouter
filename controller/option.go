@@ -3,14 +3,16 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"strconv"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -27,19 +29,6 @@ var completionRatioMetaOptionKeys = []string{
 	"ImageRatio",
 	"AudioRatio",
 	"AudioCompletionRatio",
-}
-
-func isPaymentComplianceOptionKey(key string) bool {
-	return strings.HasPrefix(key, "payment_setting.compliance_")
-}
-
-func isPositiveOptionValue(value string) bool {
-	intValue, err := strconv.Atoi(strings.TrimSpace(value))
-	if err == nil {
-		return intValue > 0
-	}
-	floatValue, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	return err == nil && floatValue > 0
 }
 
 func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
@@ -141,18 +130,6 @@ func UpdateOption(c *gin.Context) {
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
 	switch option.Key {
-	case "QuotaForInviter", "QuotaForInvitee":
-		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
-			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
-			return
-		}
-	default:
-		if isPaymentComplianceOptionKey(option.Key) {
-			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
-			return
-		}
-	}
-	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			c.JSON(http.StatusOK, gin.H{
@@ -226,8 +203,59 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting.billing_expr":
+		expressions := make(map[string]string)
+		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil {
+			common.ApiErrorMsg(c, "计费表达式配置必须是模型到表达式的 JSON 对象: "+err.Error())
+			return
+		}
+		models := make([]string, 0, len(expressions))
+		for modelName := range expressions {
+			models = append(models, modelName)
+		}
+		sort.Strings(models)
+		generation := pluginruntime.DefaultRegistry.Generation()
+		for _, modelName := range models {
+			expression := expressions[modelName]
+			if plugin, ok := generation.GetByModel(modelName); ok {
+				err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
+			} else {
+				err = billing_setting.SmokeTestExpr(expression)
+			}
+			if err != nil {
+				common.ApiErrorMsg(c, fmt.Sprintf("模型 %s 的计费表达式无效: %v", modelName, err))
+				return
+			}
+		}
 	case "GroupRatio":
 		err = ratio_setting.CheckGroupRatio(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "gemini.safety_settings":
+		err = model_setting.ValidateGeminiSafetySettings(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "claude.default_max_tokens":
+		err = model_setting.ValidateClaudeDefaultMaxTokens(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case operation_setting.ToolPriceOptionKey:
+		err = operation_setting.ValidateToolPricesJSON(option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

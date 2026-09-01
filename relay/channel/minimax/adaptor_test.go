@@ -8,12 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
 )
+
+// gin.SetMode writes a package-global that parallel tests would race on, so it
+// runs once here instead of inside individual tests.
+func init() {
+	gin.SetMode(gin.TestMode)
+}
 
 func TestGetRequestURLForImageGeneration(t *testing.T) {
 	t.Parallel()
@@ -87,7 +93,6 @@ func TestConvertImageRequest(t *testing.T) {
 func TestDoResponseForImageGeneration(t *testing.T) {
 	t.Parallel()
 
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 

@@ -1,0 +1,93 @@
+# Minimal single-container topology: the image embeds the web build and
+# defaults to SQLite, so no database pods are needed for the journey smoke.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cuberouter-e2e
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cuberouter
+  namespace: cuberouter-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cuberouter
+  template:
+    metadata:
+      labels:
+        app: cuberouter
+    spec:
+      containers:
+        - name: app
+          # Built and loaded into the cluster in the same CI job; never pull.
+          image: cuberouter:e2e
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          env:
+            - name: TZ
+              value: UTC
+            # The e2e suite signs in repeatedly from one IP, and each page
+            # load also fires CriticalRateLimit-marked calls (login,
+            # auth/refresh, PUT /api/user/self), which would trip the default
+            # 20 requests / 20 min per-IP cap and cause 429 flakes. Rate
+            # limiting is a production concern, not what this suite asserts.
+            - name: CRITICAL_RATE_LIMIT_ENABLE
+              value: "false"
+            # The whole suite also issues hundreds of /api calls per run and
+            # is re-runnable against the same deployment, blowing through the
+            # default 360 requests / 3 min per-IP cap.
+            - name: GLOBAL_API_RATE_LIMIT_ENABLE
+              value: "false"
+            # The SPA fetches many static chunks per page load and every UI
+            # test starts with a fresh browser context (empty cache), which
+            # blows through the default 120 requests / 3 min per-IP web cap.
+            - name: GLOBAL_WEB_RATE_LIMIT_ENABLE
+              value: "false"
+            # Every spec's beforeAll signs in as root, and the suite is
+            # re-runnable against the same deployment, so root accumulates
+            # active sessions quickly and would hit the default 50-session
+            # cap (login 409 AUTH_SESSION_LIMIT) after a few full runs.
+            - name: USER_SESSION_ACTIVE_LIMIT
+              value: "500"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cuberouter
+  namespace: cuberouter-e2e
+spec:
+  type: NodePort
+  selector:
+    app: cuberouter
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30080

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { PermissionCatalog } from '@/lib/admin-permissions'
 import { api } from '@/lib/api'
+import type { CustomOAuthBinding } from '@/lib/oauth'
 
 import type {
   User,
@@ -28,7 +29,10 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  InviteesListData,
+  UserDashboardPayload,
 } from './types'
+import type { ExportUsersPayload } from './lib/export-utils'
 
 // ============================================================================
 // User Management APIs
@@ -178,19 +182,12 @@ export async function getPermissionCatalog(): Promise<PermissionCatalog> {
 // Admin Binding Management APIs
 // ============================================================================
 
-export interface OAuthBinding {
-  provider_id: string
-  provider_name: string
-  user_id?: number
-  external_id?: string
-}
-
 /**
  * Get user's custom OAuth bindings (admin)
  */
 export async function getUserOAuthBindings(
   userId: number
-): Promise<ApiResponse<OAuthBinding[]>> {
+): Promise<ApiResponse<CustomOAuthBinding[]>> {
   const res = await api.get(`/api/user/${userId}/oauth/bindings`)
   return res.data
 }
@@ -211,10 +208,86 @@ export async function adminClearUserBinding(
  */
 export async function adminUnbindCustomOAuth(
   userId: number,
-  providerId: string
+  providerId: number
 ): Promise<ApiResponse> {
   const res = await api.delete(
     `/api/user/${userId}/oauth/bindings/${providerId}`
   )
   return res.data
+}
+
+// ============================================================================
+// Admin User Invitees / Export / Dashboard APIs
+// ============================================================================
+
+/**
+ * Get the paginated invitee list of a user (admin)
+ */
+export async function getUserInvitees(
+  userId: number,
+  params: { p: number; page_size: number }
+): Promise<ApiResponse<InviteesListData>> {
+  const res = await api.get(`/api/user/${userId}/invitees`, { params })
+  return res.data
+}
+
+/**
+ * Get a user's quota/usage trend (admin, role-hierarchy gated)
+ */
+export async function getUserQuotaDates(
+  userId: number,
+  params: { start_timestamp: number; end_timestamp: number }
+): Promise<ApiResponse<UserDashboardPayload>> {
+  const res = await api.get(`/api/user/${userId}/quota-dates`, { params })
+  return res.data
+}
+
+export interface ExportUsersResult {
+  blob: Blob
+  filename?: string
+}
+
+/**
+ * The backend error envelope for the export endpoint. Errors are returned as
+ * HTTP 200 with `{"success":false,"message":...}` (common.ApiError/ApiErrorI18n),
+ * which axios with `responseType: 'blob'` delivers as a blob.
+ */
+interface ExportErrorEnvelope {
+  success: boolean
+  message?: string
+}
+
+/**
+ * Export users to CSV (admin). ids take precedence over keyword/group.
+ *
+ * The backend streams export errors as HTTP 200 with a JSON error envelope
+ * instead of a non-2xx status, so without this check a failed batch would be
+ * downloaded as a bogus CSV. A successful CSV always starts with the UTF-8
+ * BOM (EF BB BF), which never parses as JSON, so only the error envelope
+ * matches here. Throwing makes the caller's existing catch surface the
+ * localized toast.
+ */
+export async function exportUsers(
+  payload: ExportUsersPayload
+): Promise<ExportUsersResult> {
+  const res = await api.post('/api/user/export', payload, {
+    responseType: 'blob',
+    // Error responses are blobs here, so the axios error interceptor cannot
+    // read the server message; let the caller surface a localized toast.
+    skipErrorHandler: true,
+  })
+  const blob = res.data as Blob
+  const text = await blob.text()
+  let envelope: ExportErrorEnvelope | null = null
+  try {
+    envelope = JSON.parse(text) as ExportErrorEnvelope
+  } catch {
+    // Not JSON — a real CSV (starts with the UTF-8 BOM).
+  }
+  if (envelope && typeof envelope === 'object' && envelope.success === false) {
+    throw new Error(envelope.message ?? 'Export failed')
+  }
+  const disposition = res.headers['content-disposition'] as string | undefined
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1]
+  return { blob, filename }
 }

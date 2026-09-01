@@ -16,20 +16,68 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
+import { Download } from 'lucide-react'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
 
-import { type User } from '../types'
+import { exportUsers } from '../api'
+import { buildExportPayload } from '../lib/export-utils'
+import type { User } from '../types'
 
 interface DataTableBulkActionsProps {
   table: Table<User>
 }
 
 export function DataTableBulkActions({ table }: DataTableBulkActionsProps) {
+  const { t } = useTranslation()
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportSelected = async () => {
+    const selectedIds = table
+      .getSelectedRowModel()
+      .rows.map((row) => row.original.id)
+    if (selectedIds.length === 0) {
+      return
+    }
+    setIsExporting(true)
+    try {
+      const payload = buildExportPayload(selectedIds, {
+        keyword: '',
+        group: '',
+      })
+      const { blob, filename } = await exportUsers(payload)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename || 'users.csv'
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      // exportUsers throws the backend's error envelope message, so the admin
+      // sees the real reason (e.g. unsupported format, too many rows).
+      const message = error instanceof Error ? error.message : ''
+      toast.error(message || t('Failed to export users'))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <BulkActionsToolbar table={table} entityName='user'>
-      <></>
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={handleExportSelected}
+        disabled={isExporting}
+      >
+        <Download aria-hidden='true' className='h-4 w-4' />
+        {t('Export Selected')}
+      </Button>
     </BulkActionsToolbar>
   )
 }

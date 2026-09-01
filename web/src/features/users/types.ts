@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { AdminPermissionMatrix } from '@/lib/admin-permissions'
 
 // ============================================================================
@@ -154,3 +155,41 @@ export interface ManageUserQuotaPayload {
 // ============================================================================
 
 export type UsersDialogType = 'create' | 'update' | 'delete'
+
+// ============================================================================
+// Invitees / Export / Dashboard Types
+// ============================================================================
+
+export interface InviteeBrief {
+  id: number
+  username: string
+  email: string
+  phone: string
+  status: number
+  group: string
+  role: number
+  created_at: number
+}
+
+export interface InviteesListData {
+  page: number
+  page_size: number
+  total: number
+  items: InviteeBrief[]
+}
+
+export interface UserDashboardBrief {
+  id: number
+  username: string
+  display_name: string
+  role: number
+  group: string
+  quota: number
+  used_quota: number
+  request_count: number
+}
+
+export interface UserDashboardPayload {
+  user: UserDashboardBrief
+  dates: QuotaDataItem[]
+}

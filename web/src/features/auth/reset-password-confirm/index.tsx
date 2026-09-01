@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -26,9 +26,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useCountdown } from '@/hooks/use-countdown'
 import { api } from '@/lib/api'
-import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import { AuthLayout } from '../auth-layout'
 
@@ -45,16 +43,12 @@ export function ResetPasswordConfirm({
 }: ResetPasswordConfirmProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [newPassword, setNewPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const {
-    secondsLeft,
-    isActive,
-    start: startCountdown,
-  } = useCountdown({ initialSeconds: 30 })
+  const [resetSucceeded, setResetSucceeded] = useState(false)
+  const [linkInvalidated, setLinkInvalidated] = useState(false)
 
   const isValidResetLink = Boolean(email && token)
+  const showInvalidLink = !isValidResetLink || linkInvalidated
 
   async function handleSubmit() {
     if (!isValidResetLink || !email || !token) {
@@ -62,7 +56,6 @@ export function ResetPasswordConfirm({
       return
     }
 
-    startCountdown()
     setLoading(true)
     try {
       const res = await api.post('/api/user/reset', { email, token }, {
@@ -70,18 +63,27 @@ export function ResetPasswordConfirm({
       } as Record<string, unknown>)
 
       if (res?.data?.success) {
-        const password = res.data.data
-        setNewPassword(password)
-        const copySuccess = await copyToClipboard(password)
-        if (copySuccess) {
-          toast.success(
-            t('Password reset and copied to clipboard: {{password}}', {
-              password,
-            })
+        setResetSucceeded(true)
+        toast.success(
+          t(
+            'Password reset, the new password has been sent to your email'
           )
-        } else {
-          toast.success(t('Password reset: {{password}}', { password }))
+        )
+      } else {
+        // 链接失效（token 缺失/过期/已消费）：后端以 code 标记，切换到
+        // 无效链接态（Banner + 返回登录），不再停留在表单
+        if (res?.data?.code === 'PASSWORD_RESET_LINK_INVALID') {
+          setLinkInvalidated(true)
+          return
         }
+        // 其他业务失败（如邮件发送失败）：用后端已按请求语言翻译的消息
+        // 提示；表单保留，用户可重试
+        const message = res?.data?.message
+        toast.error(
+          typeof message === 'string' && message
+            ? message
+            : t('Invalid reset link, please request a new password reset')
+        )
       }
     } catch {
       // Errors handled by global interceptor
@@ -90,19 +92,71 @@ export function ResetPasswordConfirm({
     }
   }
 
-  async function handleCopy() {
-    if (!newPassword) return
+  // 无效链接（缺 email/token，或提交时后端判定 token 已失效）：
+  // 仅警告横幅 + 返回登录，不渲染表单
+  if (showInvalidLink) {
+    return (
+      <AuthLayout>
+        <div className='w-full space-y-8'>
+          <div className='space-y-2'>
+            <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
+              {t('Reset password')}
+            </h2>
+            <p className='text-muted-foreground text-left text-sm sm:text-base'>
+              {t('auth.resetPasswordConfirm.description')}
+            </p>
+          </div>
 
-    const copySuccess = await copyToClipboard(newPassword)
-    if (copySuccess) {
-      setCopied(true)
-      toast.success(
-        t('Password copied to clipboard: {{password}}', {
-          password: newPassword,
-        })
-      )
-      setTimeout(() => setCopied(false), 2000)
-    }
+          <Alert variant='destructive'>
+            <AlertDescription>
+              {t('Invalid reset link, please request a new password reset.')}
+            </AlertDescription>
+          </Alert>
+
+          <Button
+            variant='link'
+            className='w-full'
+            onClick={() => navigate({ to: '/sign-in', replace: true })}
+          >
+            {t('Back to login')}
+          </Button>
+        </div>
+      </AuthLayout>
+    )
+  }
+
+  // 成功态：新密码已发送至邮箱，隐藏表单
+  if (resetSucceeded) {
+    return (
+      <AuthLayout>
+        <div className='w-full space-y-8'>
+          <div className='space-y-2'>
+            <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
+              {t('Reset password')}
+            </h2>
+            <p className='text-muted-foreground text-left text-sm sm:text-base'>
+              {t('auth.resetPasswordConfirm.success')}
+            </p>
+          </div>
+
+          <Alert variant='success'>
+            <CheckIcon className='h-4 w-4' />
+            <AlertDescription>
+              {t(
+                'Password reset, the new password has been sent to your email. Please check your email and log in with the new password.'
+              )}
+            </AlertDescription>
+          </Alert>
+
+          <Button
+            className='w-full'
+            onClick={() => navigate({ to: '/sign-in', replace: true })}
+          >
+            {t('auth.resetPasswordConfirm.backToLogin')}
+          </Button>
+        </div>
+      </AuthLayout>
+    )
   }
 
   return (
@@ -113,21 +167,11 @@ export function ResetPasswordConfirm({
             {t('Reset password')}
           </h2>
           <p className='text-muted-foreground text-left text-sm sm:text-base'>
-            {newPassword
-              ? t('auth.resetPasswordConfirm.success')
-              : t('auth.resetPasswordConfirm.description')}
+            {t('auth.resetPasswordConfirm.description')}
           </p>
         </div>
 
         <div className='space-y-4'>
-          {!isValidResetLink && (
-            <Alert variant='destructive'>
-              <AlertDescription>
-                {t('Invalid reset link, please request a new password reset.')}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <div className='space-y-2'>
             <Label htmlFor='email'>{t('Email')}</Label>
             <Input
@@ -139,64 +183,21 @@ export function ResetPasswordConfirm({
             />
           </div>
 
-          {newPassword && (
-            <div className='space-y-2'>
-              <Label htmlFor='password'>{t('New password')}</Label>
-              <div className='flex gap-2'>
-                <Input
-                  id='password'
-                  value={newPassword}
-                  disabled
-                  className='font-mono'
-                />
-                <Button
-                  type='button'
-                  size='icon'
-                  variant='outline'
-                  onClick={handleCopy}
-                >
-                  {copied ? (
-                    <CheckIcon className='h-4 w-4' />
-                  ) : (
-                    <CopyIcon className='h-4 w-4' />
-                  )}
-                </Button>
-              </div>
-              <p className='text-muted-foreground text-xs'>
-                {t('Password has been copied to clipboard')}
-              </p>
-            </div>
-          )}
-
           <Button
             className='w-full'
-            onClick={
-              newPassword
-                ? () => navigate({ to: '/sign-in', replace: true })
-                : handleSubmit
-            }
-            disabled={
-              newPassword ? false : loading || isActive || !isValidResetLink
-            }
+            onClick={handleSubmit}
+            disabled={loading}
           >
-            {newPassword
-              ? t('auth.resetPasswordConfirm.backToLogin')
-              : isActive
-                ? t('auth.resetPasswordConfirm.retry', {
-                    seconds: secondsLeft,
-                  })
-                : t('auth.resetPasswordConfirm.confirm')}
+            {t('auth.resetPasswordConfirm.confirm')}
           </Button>
 
-          {!newPassword && (
-            <Button
-              variant='link'
-              className='w-full'
-              onClick={() => navigate({ to: '/sign-in', replace: true })}
-            >
-              {t('Back to login')}
-            </Button>
-          )}
+          <Button
+            variant='link'
+            className='w-full'
+            onClick={() => navigate({ to: '/sign-in', replace: true })}
+          >
+            {t('Back to login')}
+          </Button>
         </div>
       </div>
     </AuthLayout>

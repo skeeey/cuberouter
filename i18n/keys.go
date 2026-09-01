@@ -55,6 +55,9 @@ const (
 	MsgTokenExhausted            = "token.exhausted"
 	MsgTokenStatusUnavailable    = "token.status_unavailable"
 	MsgTokenDbError              = "token.db_error"
+	MsgTokenAutoGroupsTooMany    = "token.auto_groups_too_many"
+	MsgTokenAutoGroupsDuplicate  = "token.auto_groups_duplicate"
+	MsgTokenAutoGroupsInvalid    = "token.auto_groups_invalid"
 )
 
 // Redemption related messages
@@ -89,6 +92,8 @@ const (
 	MsgUserEmailAlreadyTaken         = "user.email_already_taken"
 	MsgUserPasswordUnset             = "user.password_unset"
 	MsgUserPasswordResetLinkInvalid  = "user.password_reset_link_invalid"
+	MsgUserPasswordResetEmailSent    = "user.password_reset_email_sent"
+	MsgUserPasswordResetEmailSendFailed = "user.password_reset_email_send_failed"
 	MsgUserInputInvalid              = "user.input_invalid"
 	MsgUserNoPermissionSameLevel     = "user.no_permission_same_level"
 	MsgUserNoPermissionHigherLevel   = "user.no_permission_higher_level"
@@ -117,6 +122,11 @@ const (
 	MsgUserTelegramNotBound          = "user.telegram_not_bound"
 	MsgUserLinuxDOIdEmpty            = "user.linux_do_id_empty"
 	MsgUserQuotaChangeZero           = "user.quota_change_zero"
+	MsgUserGroupModifyForbidden      = "user.group_modify_forbidden_has_invitees"
+	MsgUserPasswordStrengthInvalid   = "user.password_strength_invalid"
+	MsgUserUsernameTooLong           = "user.username_too_long"
+	MsgUserDisplayNameTooLong        = "user.display_name_too_long"
+	MsgUserEmailTooLong              = "user.email_too_long"
 )
 
 // Ops (运营角色) related messages
@@ -138,6 +148,8 @@ const (
 	MsgOpsExportHeaderQuota                 = "ops.export_header.quota"
 	MsgOpsExportHeaderUsedQuota             = "ops.export_header.used_quota"
 	MsgOpsExportHeaderRequestCount          = "ops.export_header.request_count"
+	MsgOpsExportHeaderPromptTokens          = "ops.export_header.prompt_tokens"
+	MsgOpsExportHeaderCompletionTokens      = "ops.export_header.completion_tokens"
 	MsgOpsExportHeaderCreatedAt             = "ops.export_header.created_at"
 	MsgOpsExportHeaderAffCode               = "ops.export_header.aff_code"
 	MsgOpsExportHeaderAffCount              = "ops.export_header.aff_count"
@@ -145,6 +157,35 @@ const (
 	MsgOpsStatusEnabled                     = "ops.status.enabled"
 	MsgOpsStatusDisabled                    = "ops.status.disabled"
 	MsgOpsStatusUnknown                     = "ops.status.unknown"
+)
+
+// Admin user management related messages
+const (
+	MsgAdminCannotViewUserDashboard  = "admin.cannot_view_user_dashboard"
+	MsgAdminQuotaDatesRangeExceeded  = "admin.quota_dates_range_exceeded"
+	MsgAdminExportUnsupportedFormat  = "admin.export_unsupported_format"
+	MsgAdminExportHeaderId           = "admin.export_header.id"
+	MsgAdminExportHeaderUsername     = "admin.export_header.username"
+	MsgAdminExportHeaderDisplayName  = "admin.export_header.display_name"
+	MsgAdminExportHeaderRole         = "admin.export_header.role"
+	MsgAdminExportHeaderStatus       = "admin.export_header.status"
+	MsgAdminExportHeaderGroup        = "admin.export_header.group"
+	MsgAdminExportHeaderQuota        = "admin.export_header.quota"
+	MsgAdminExportHeaderUsedQuota    = "admin.export_header.used_quota"
+	MsgAdminExportHeaderRequestCount = "admin.export_header.request_count"
+	MsgAdminExportHeaderCreatedAt    = "admin.export_header.created_at"
+	MsgAdminExportHeaderRemark       = "admin.export_header.remark"
+	MsgAdminExportHeaderAffCode      = "admin.export_header.aff_code"
+	MsgAdminExportHeaderAffCount     = "admin.export_header.aff_count"
+	MsgAdminExportHeaderInviterId    = "admin.export_header.inviter_id"
+	MsgAdminRoleCommon               = "admin.role.common"
+	MsgAdminRoleOps                  = "admin.role.ops"
+	MsgAdminRoleAdmin                = "admin.role.admin"
+	MsgAdminRoleRoot                 = "admin.role.root"
+	MsgAdminRoleUnknown              = "admin.role.unknown"
+	MsgAdminStatusEnabled            = "admin.status.enabled"
+	MsgAdminStatusDisabled           = "admin.status.disabled"
+	MsgAdminStatusUnknown            = "admin.status.unknown"
 )
 
 // Quota related messages
@@ -182,8 +223,7 @@ const (
 	MsgPaymentStripeNotConfig    = "payment.stripe_not_configured"
 	MsgPaymentWebhookNotConfig   = "payment.webhook_not_configured"
 	MsgPaymentPriceIdNotConfig   = "payment.price_id_not_configured"
-	MsgPaymentCreemNotConfig     = "payment.creem_not_configured"
-	MsgPaymentComplianceRequired = "payment.compliance_required"
+	MsgPaymentCreemNotConfig = "payment.creem_not_configured"
 )
 
 // Topup related messages

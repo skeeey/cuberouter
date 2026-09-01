@@ -32,8 +32,11 @@ const defaultSiteSettings: SiteSettings = {
   About: '',
   HomePageContent: '',
   ServerAddress: '',
+  TaskPublicAddress: '',
   'legal.user_agreement': '',
   'legal.privacy_policy': '',
+  'general_setting.docs_link': '',
+  'general_setting.admin_docs_link': '',
   HeaderNavModules: '',
   SidebarModulesAdmin: '',
 }

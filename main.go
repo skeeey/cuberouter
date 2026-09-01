@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,8 +24,10 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -45,7 +48,14 @@ var buildFS embed.FS
 var indexPage []byte
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		os.Exit(jsplugin.RunCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	startTime := time.Now()
+	kitutil.SetLogging(common.SysLog, func(message string) {
+		logger.LogError(nil, message)
+	})
+	kitutil.SetSystemErrorLogging(common.SysError)
 
 	err := InitResources()
 	if err != nil {
@@ -60,6 +70,8 @@ func main() {
 	if common.DebugEnabled {
 		common.SysLog("running in debug mode")
 	}
+
+	kitutil.Debug.Store(common.DebugEnabled)
 
 	defer func() {
 		err := model.CloseDB()
@@ -100,6 +112,7 @@ func main() {
 
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
+	go controller.SyncTaskPlugins()
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
 	go authz.StartPolicySync(common.SyncFrequency)
@@ -165,7 +178,7 @@ func main() {
 
 	// Initialize HTTP server
 	server := gin.New()
-	if err := configureTrustedProxies(server); err != nil {
+	if err := middleware.ConfigureTrustedProxies(server); err != nil {
 		common.FatalLog("failed to configure trusted proxies: " + err.Error())
 		return
 	}
@@ -197,6 +210,12 @@ func main() {
 		port = strconv.Itoa(*common.Port)
 	}
 
+	tlsSettings, err := common.GetTLSSettings()
+	if err != nil {
+		common.FatalLog("invalid TLS configuration: " + err.Error())
+		return
+	}
+
 	srv := &http.Server{
 		Addr:    ":" + port,
 		Handler: server,
@@ -208,9 +227,42 @@ func main() {
 		}
 	}()
 
+	// HTTPS is opt-in: only when TLS_CERT_FILE/TLS_KEY_FILE are set does a
+	// second listener share the same handler on the TLS port.
+	var srvTLS *http.Server
+	var tlsReady chan struct{}
+	if tlsSettings.Enabled {
+		srvTLS, err = common.NewTLSServer(server, tlsSettings)
+		if err != nil {
+			common.FatalLog("failed to create HTTPS server: " + err.Error())
+			return
+		}
+		// Bind synchronously so a busy port or bad certificate surfaces here,
+		// not after the startup message has already been printed.
+		tlsReady = make(chan struct{})
+		go func() {
+			ln, err := net.Listen("tcp", ":"+tlsSettings.Port)
+			if err != nil {
+				common.FatalLog("failed to start HTTPS server: " + err.Error())
+				return
+			}
+			close(tlsReady)
+			if err := srvTLS.ServeTLS(ln, tlsSettings.CertFile, tlsSettings.KeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				common.FatalLog("failed to start HTTPS server: " + err.Error())
+			}
+		}()
+	}
+
 	time.Sleep(100 * time.Millisecond)
 
+	if tlsSettings.Enabled {
+		<-tlsReady
+	}
+
 	common.LogStartupSuccess(startTime, port)
+	if tlsSettings.Enabled {
+		common.SysLog(fmt.Sprintf("HTTPS server started on :%s", tlsSettings.Port))
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -223,6 +275,15 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
+	}
+	if srvTLS != nil {
+		// The shared ctx above may already be expired after long SSE streams
+		// consumed the HTTP grace period; give HTTPS its own budget.
+		tlsCtx, tlsCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer tlsCancel()
+		if err := srvTLS.Shutdown(tlsCtx); err != nil {
+			common.SysError(fmt.Sprintf("HTTPS server forced to shutdown: %v", err))
+		}
 	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
@@ -304,6 +365,10 @@ func InitResources() error {
 	}
 	if err = authz.Init(model.DB); err != nil {
 		common.FatalLog("failed to initialize authorization: " + err.Error())
+		return err
+	}
+	if err = model.InitPasswordEncryption(); err != nil {
+		common.FatalLog("failed to initialize password encryption: " + err.Error())
 		return err
 	}
 

@@ -39,6 +39,7 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
+export type AlipayPaymentResponse = ApiResponse<{ pay_url: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
@@ -124,6 +125,10 @@ export interface TopupInfo {
   enable_online_topup: boolean
   /** Whether Stripe topup is enabled */
   enable_stripe_topup: boolean
+  /** Whether official Alipay topup is enabled */
+  enable_alipay_topup?: boolean
+  /** Minimum topup amount for official Alipay */
+  alipay_min_topup?: number
   /** Available payment methods */
   pay_methods: PaymentMethod[]
   /** Minimum topup amount for online topup */
@@ -150,12 +155,6 @@ export interface TopupInfo {
   enable_waffo_pancake_topup?: boolean
   /** Minimum topup amount for Waffo Pancake */
   waffo_pancake_min_topup?: number
-  /** Whether redemption code usage is enabled */
-  enable_redemption?: boolean
-  /** Whether compliance confirmation has been completed */
-  payment_compliance_confirmed?: boolean
-  /** Current compliance terms version */
-  payment_compliance_terms_version?: string
 }
 
 /**

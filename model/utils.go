@@ -2,6 +2,8 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -17,6 +19,9 @@ const (
 	BatchUpdateTypeUsedQuota
 	BatchUpdateTypeChannelUsedQuota
 	BatchUpdateTypeRequestCount
+	BatchUpdateTypeTotalPromptTokens
+	BatchUpdateTypeTotalCompletionTokens
+	BatchUpdateTypeTotalCacheTokens
 	BatchUpdateTypeCount // if you add a new type, you need to add a new map and a new lock
 )
 
@@ -42,11 +47,22 @@ func InitBatchUpdater() {
 func addNewRecord(type_ int, id int, value int) {
 	batchUpdateLocks[type_].Lock()
 	defer batchUpdateLocks[type_].Unlock()
-	if _, ok := batchUpdateStores[type_][id]; !ok {
+	old, ok := batchUpdateStores[type_][id]
+	if !ok {
 		batchUpdateStores[type_][id] = value
-	} else {
-		batchUpdateStores[type_][id] += value
+		return
 	}
+
+	sum := old + value
+	if (value > 0 && sum < old) || (value < 0 && sum > old) {
+		common.SysError(fmt.Sprintf("batch update overflow: type=%d id=%d old=%d value=%d", type_, id, old, value))
+		if value > 0 {
+			sum = math.MaxInt
+		} else {
+			sum = math.MinInt
+		}
+	}
+	batchUpdateStores[type_][id] = sum
 }
 
 func batchUpdate() {
@@ -88,6 +104,12 @@ func batchUpdate() {
 				}
 			case BatchUpdateTypeChannelUsedQuota:
 				updateChannelUsedQuota(key, value)
+			case BatchUpdateTypeTotalPromptTokens:
+				updateUserTotalPromptTokens(key, int64(value))
+			case BatchUpdateTypeTotalCompletionTokens:
+				updateUserTotalCompletionTokens(key, int64(value))
+			case BatchUpdateTypeTotalCacheTokens:
+				updateUserTotalCacheTokens(key, int64(value))
 			}
 		}
 	}

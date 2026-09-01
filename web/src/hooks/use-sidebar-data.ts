@@ -27,6 +27,7 @@ import {
   ListTodo,
   Megaphone,
   MessageSquare,
+  PlugZap,
   Puzzle,
   Radio,
   ServerCog,
@@ -163,6 +164,12 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
+            title: t('Task Plugins'),
+            url: '/task-plugins',
+            icon: PlugZap,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
             title: t('System Settings'),
             url: '/system-settings/site',
             activeUrls: ['/system-settings'],
@@ -181,7 +188,7 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.OPS,
           },
           {
-            title: t('Invite History'),
+            title: t('User Management'),
             url: '/ops/invite-history',
             icon: Users,
             requiredRole: ROLE.OPS,

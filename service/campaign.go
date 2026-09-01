@@ -21,6 +21,38 @@ type CampaignEngine struct {
 // Global campaign engine instance
 var CampaignEngineInstance = &CampaignEngine{}
 
+// campaignDispatches tracks in-flight campaign goroutines so tests can wait
+// for them to finish before tearing down global state.
+var campaignDispatches sync.WaitGroup
+
+// campaignLifecycle serializes dispatch registration against drains. Without
+// it, DrainCampaignDispatches could observe a zero WaitGroup counter and
+// return while a concurrent OnPhoneFilled / OnInvitationRegister call had not
+// yet reached Add(1), leaving that dispatch goroutine untracked and free to
+// outlive the test teardown.
+var campaignLifecycle sync.Mutex
+
+func campaignGo(f func()) {
+	campaignLifecycle.Lock()
+	campaignDispatches.Add(1)
+	campaignLifecycle.Unlock()
+	gopool.Go(func() {
+		defer campaignDispatches.Done()
+		f()
+	})
+}
+
+// DrainCampaignDispatches blocks until every queued campaign dispatch (reward
+// handling and notification emails) has returned. Tests call it before
+// restoring global handles so no campaign goroutine outlives the test.
+// It holds campaignLifecycle, so no concurrent registration can interleave
+// its Add(1) with the Wait below.
+func DrainCampaignDispatches() {
+	campaignLifecycle.Lock()
+	defer campaignLifecycle.Unlock()
+	campaignDispatches.Wait()
+}
+
 // handleCampaignType processes a specific campaign type for a user
 func (e *CampaignEngine) handleCampaignType(campaignType string, user *model.User, inviterId int) {
 	// Entry points may pass a slim struct without Email (e.g. request-body users
@@ -114,7 +146,7 @@ func (e *CampaignEngine) OnPhoneFilled(user *model.User) {
 		return
 	}
 
-	gopool.Go(func() {
+	campaignGo(func() {
 		e.handleCampaignType(model.CampaignTypePhoneFilled, user, 0)
 	})
 }
@@ -160,7 +192,7 @@ func (e *CampaignEngine) dispatchPhoneFilledReward(campaign *model.Campaign, use
 
 	// 发送兑换码邮件：用户未绑定邮箱或 SMTP 未配置时静默跳过
 	if reward != nil {
-		gopool.Go(func() {
+		campaignGo(func() {
 			SendCampaignRewardEmail(user, campaign, redemption, reward)
 		})
 	}
@@ -182,7 +214,7 @@ func buildCampaignRewardEmail(campaign *model.Campaign, redemption *model.Redemp
 	if campaign.Type == model.CampaignTypeInvitation {
 		zhSubject := fmt.Sprintf("%s - 活动奖励到账通知", common.SystemName)
 		enSubject := fmt.Sprintf("%s - Campaign Reward Credited", common.SystemName)
-		subject = wrapBilingualSubject(enSubject, zhSubject)
+		subject = common.WrapBilingualSubject(enSubject, zhSubject)
 		enContent := fmt.Sprintf(
 			`<p>Hello,</p>`+
 				`<p>Thank you for participating in the campaign "<b>%s</b>". A reward of <b>%s</b> has been credited to your account automatically — no further action is needed.</p>`+
@@ -197,12 +229,12 @@ func buildCampaignRewardEmail(campaign *model.Campaign, redemption *model.Redemp
 				`<p style="color:#888;font-size:12px;">此邮件由系统自动发送，请勿直接回复。</p>`,
 			campaign.Name, logger.LogQuota(redemption.Quota), redemption.Key,
 		)
-		return subject, wrapBilingualContent(enContent, zhContent)
+		return subject, common.WrapBilingualContent(enContent, zhContent)
 	}
 
 	zhSubject := fmt.Sprintf("%s - 活动兑换码", common.SystemName)
 	enSubject := fmt.Sprintf("%s - Campaign Redemption Code", common.SystemName)
-	subject = wrapBilingualSubject(enSubject, zhSubject)
+	subject = common.WrapBilingualSubject(enSubject, zhSubject)
 	enContent := fmt.Sprintf(
 		`<p>Hello,</p>`+
 			`<p>Thank you for participating in the campaign "<b>%s</b>". Here is your redemption code:</p>`+
@@ -223,7 +255,7 @@ func buildCampaignRewardEmail(campaign *model.Campaign, redemption *model.Redemp
 			`<p style="color:#888;font-size:12px;">此邮件由系统自动发送，请勿直接回复。</p>`,
 		campaign.Name, redemption.Key, logger.LogQuota(redemption.Quota), zhExpireDesc,
 	)
-	return subject, wrapBilingualContent(enContent, zhContent)
+	return subject, common.WrapBilingualContent(enContent, zhContent)
 }
 
 // SendCampaignRewardEmail 发送/补发活动兑换码邮件。
@@ -250,7 +282,7 @@ func (e *CampaignEngine) OnInvitationRegister(user *model.User, inviterId int) {
 		return
 	}
 
-	gopool.Go(func() {
+	campaignGo(func() {
 		e.handleCampaignType(model.CampaignTypeInvitation, user, inviterId)
 	})
 }
@@ -298,7 +330,7 @@ func (e *CampaignEngine) dispatchInvitationReward(campaign *model.Campaign, user
 
 	// Send email notification if user has email bound
 	if reward != nil {
-		gopool.Go(func() {
+		campaignGo(func() {
 			SendCampaignRewardEmail(user, campaign, redemption, reward)
 		})
 	}
@@ -397,12 +429,4 @@ func (e *CampaignEngine) GenerateInvitationCodes(campaign *model.Campaign) (int,
 		"邀请活动「%s」生成了 %d 个兑换码（当前共 %d 个可用），前缀: %s", campaign.Name, created, finalAvailable, prefix)
 
 	return created, nil
-}
-
-func wrapBilingualSubject(enSubject string, zhSubject string) string {
-	return fmt.Sprintf("%s / %s", enSubject, zhSubject)
-}
-
-func wrapBilingualContent(enContent string, zhContent string) string {
-	return fmt.Sprintf(`%s<hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">%s`, enContent, zhContent)
 }

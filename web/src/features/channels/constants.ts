@@ -21,6 +21,12 @@ For commercial licensing, please contact support@quantumnous.com
 // All label/name values are i18n keys; use t(value) when displaying.
 // ============================================================================
 
+// Upstream assigns New API = 60, but 60 is taken by Sub2API in this fork; remapped to 61 (must match backend constant.ChannelTypeNewAPI).
+export const CHANNEL_TYPE_NEW_API = 61
+
+// Upstream assigns Task Plugin = 61, but 61 is taken by New API in this fork; remapped to 62 (must match backend constant.ChannelTypeTaskPlugin).
+export const CHANNEL_TYPE_TASK_PLUGIN = 62
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
@@ -77,12 +83,19 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'ChatGPT Subscription (Codex)',
   58: 'Advanced Custom',
+  59: 'AstraFlow',
+  // Upstream assigns Sub2API = 59, but 59 is taken by AstraFlow in this fork; remapped to 60 (must match backend constant.ChannelTypeSub2API).
+  60: 'Sub2API',
+  // Upstream assigns New API = 60; remapped to 61 (see CHANNEL_TYPE_NEW_API).
+  61: 'New API',
+  // Upstream assigns Task Plugin = 61; remapped to 62 (see CHANNEL_TYPE_TASK_PLUGIN).
+  62: 'Task Plugin',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
-  1, 14, 33, 24, 43, 3, 41, 48, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15, 46,
-  23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21, 44, 2, 5, 36,
-  50, 51, 52, 53, 54, 55, 56,
+  1, 14, 33, 24, 43, 3, 41, 48, 61, 58, 62, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
+  46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 60, 22, 21, 44, 2,
+  5, 36, 50, 51, 52, 53, 54, 55, 56, 59,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -103,6 +116,17 @@ export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
   }
   return ordered
 })()
+
+export function channelTypeOptionsForTaskPluginBind(
+  canBindTaskPlugin: boolean
+): { value: number; label: string }[] {
+  if (canBindTaskPlugin) {
+    return CHANNEL_TYPE_OPTIONS
+  }
+  return CHANNEL_TYPE_OPTIONS.filter(
+    (option) => option.value !== CHANNEL_TYPE_TASK_PLUGIN
+  )
+}
 
 // ============================================================================
 // Channel Status (label values are i18n keys; use t(config.label) in components)
@@ -241,6 +265,11 @@ export const ERROR_MESSAGES = {
   INVALID_MODEL_MAPPING: 'Invalid model mapping format',
   INVALID_PROXY:
     'Proxy address must use HTTP, HTTPS, SOCKS5, or SOCKS5H and include a valid host',
+  INVALID_HTTP_PROTOCOL: 'HTTP protocol must be Auto or HTTP/1.1',
+  INVALID_HTTP2_CONNECTION_SHARDS:
+    'HTTP/2 connection shards must be between 1 and 8',
+  INVALID_HTTP1_WITH_SHARDS:
+    'HTTP/2 connection shards must be 1 when HTTP/1.1 is selected',
   CREATE_FAILED: 'Failed to create channel',
   UPDATE_FAILED: 'Failed to update channel',
   DELETE_FAILED: 'Failed to delete channel',
@@ -380,17 +409,45 @@ export const FIELD_DESCRIPTIONS = {
 
 export const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 57, 58,
+  59, 60, 61,
+])
+
+// Upstream's 59 (Sub2API) is remapped to 60 in this fork; CHANNEL_TYPE_NEW_API is 61.
+export const FIELD_PASSTHROUGH_TYPES = new Set([
+  1,
+  14,
+  57,
+  58,
+  60,
+  CHANNEL_TYPE_NEW_API,
+])
+
+export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
+  1,
+  57,
+  58,
+  60,
+  CHANNEL_TYPE_NEW_API,
+])
+
+export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([
+  14,
+  58,
+  60,
+  CHANNEL_TYPE_NEW_API,
 ])
 
 export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   15: 'Format: APIKey|SecretKey',
   18: 'Format: APPID|APISecret|APIKey',
   22: 'Format: APIKey-AppId, e.g., fastgpt-0sp2gtvfdgyi4k30jwlgwf1i-64f335d84283f05518e9e041',
-  23: 'Format: AppId|SecretId|SecretKey',
+  23: 'Format: TokenHub API Key, or legacy AppId|SecretId|SecretKey',
   33: 'Format: Ak|Sk|Region',
   50: 'Format: AccessKey|SecretKey (or just ApiKey if upstream is CubeRouter)',
   51: 'Format: Access Key ID|Secret Access Key',
   57: 'Paste Codex OAuth JSON credential (access_token / refresh_token / account_id)',
+  60: 'Enter API key for this channel',
+  61: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {
