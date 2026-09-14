@@ -31,12 +31,20 @@ func ToolUseIDToken(slot *string) string {
 // Only name-derived ids are replaced. Provider-native ids never embed the tool
 // name, so Anthropic ("toolu_01ABC..."), Bedrock ("toolu_bdrk_..."), Vertex
 // ("toolu_vrtx_...") and OpenAI-compatible upstreams ("call_00_...") pass
-// through untouched.
+// through untouched. Those namespaces are also excluded explicitly, so a tool
+// named after one of them cannot make us rewrite that provider's ids.
 //
 // responseToken must be stable for the whole response and distinct between
 // responses; ordinal distinguishes sibling tool calls within one response.
 func NormalizeToolUseID(id, name, responseToken string, ordinal int) string {
 	if name == "" {
+		return id
+	}
+	// A tool may be named after a provider's id namespace ("call", "bdrk",
+	// "vrtx"); that must not make us rewrite that provider's own ids.
+	if strings.HasPrefix(id, "call_") ||
+		strings.HasPrefix(id, "toolu_bdrk_") ||
+		strings.HasPrefix(id, "toolu_vrtx_") {
 		return id
 	}
 	if !strings.HasPrefix(id, name+"_") && !strings.HasPrefix(id, "toolu_"+name+"_") {

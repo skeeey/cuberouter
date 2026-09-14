@@ -57,6 +57,25 @@ func TestToolUseIDTokenIsStableWithinResponseAndDistinctBetween(t *testing.T) {
 	assert.NotEqual(t, first, ToolUseIDToken(&otherSlot), "must differ between responses")
 }
 
+func TestNormalizeToolUseIDKeepsProviderNamespacesWhenTheToolNameCollides(t *testing.T) {
+	tests := []struct {
+		name       string
+		toolName   string
+		upstreamID string
+	}{
+		{name: "openai call namespace", toolName: "call", upstreamID: "call_00_CUm0TepZnqOuU6ftGV4U7855"},
+		{name: "bedrock namespace", toolName: "bdrk", upstreamID: "toolu_bdrk_01ABCdefGHIjkl"},
+		{name: "vertex namespace", toolName: "vrtx", upstreamID: "toolu_vrtx_01ABCdefGHIjkl"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.upstreamID, NormalizeToolUseID(tt.upstreamID, tt.toolName, "a1b2c3d4", 0),
+				"a tool name that collides with a provider namespace must not rewrite that provider's ids")
+		})
+	}
+}
+
 func TestNormalizeToolUseIDRequiresNamePrefixMatch(t *testing.T) {
 	// The tool name appearing mid-id is not the name-derived shape.
 	assert.Equal(t, "toolu_MyBash_0", NormalizeToolUseID("toolu_MyBash_0", "Bash", "a1b2c3d4", 0))
