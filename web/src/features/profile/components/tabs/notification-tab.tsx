@@ -33,6 +33,7 @@ import { updateUserSettings } from '../../api'
 import {
   DEFAULT_QUOTA_WARNING_THRESHOLD,
   NOTIFICATION_METHODS,
+  SHOW_ACCEPT_UNPRICED_MODELS,
 } from '../../constants'
 import { parseUserSettings } from '../../lib'
 import type { UserProfile, UserSettings, NotifyType } from '../../types'
@@ -125,7 +126,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
       } else {
         toast.error(response.message || t('Failed to update settings'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to update settings'))
     } finally {
       setLoading(false)
@@ -137,38 +138,47 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
   return (
     <div className='space-y-4 sm:space-y-6'>
       {/* Notification Type */}
-      <div className='space-y-2.5'>
-        <Label>{t('Notification Method')}</Label>
-        <ToggleGroup
-          value={[notifyType]}
-          onValueChange={(value) => {
-            const nextValue = value.find((item) => item !== notifyType)
-            if (nextValue)
-              updateField('notify_type', normalizeNotifyType(nextValue))
-          }}
-          aria-label={t('Notification Method')}
-          variant='outline'
-          size='lg'
-          spacing={2}
-          className='grid w-full grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3'
-        >
-          {NOTIFICATION_METHODS.map((method) => {
-            const Icon = NOTIFICATION_ICONS[method.value]
-            return (
-              <ToggleGroupItem
-                key={method.value}
-                value={method.value}
-                className='h-auto min-h-14 w-full flex-col gap-1.5 px-3 py-3 sm:min-h-16'
-              >
-                <Icon className='h-4 w-4 sm:h-5 sm:w-5' />
-                <span className='max-w-full truncate text-xs font-medium sm:text-sm'>
-                  {t(method.label)}
-                </span>
-              </ToggleGroupItem>
-            )
-          })}
-        </ToggleGroup>
-      </div>
+      {/*
+        The method selector is hidden while NOTIFICATION_METHODS only exposes
+        Email (see features/profile/constants.ts). The webhook / bark / gotify
+        forms below stay as dead code so they can be re-enabled together with
+        the corresponding NOTIFICATION_METHODS entries.
+      */}
+      {NOTIFICATION_METHODS.length > 1 && (
+        <div className='space-y-2.5'>
+          <Label>{t('Notification Method')}</Label>
+          <ToggleGroup
+            value={[notifyType]}
+            onValueChange={(value) => {
+              const nextValue = value.find((item) => item !== notifyType)
+              if (nextValue) {
+                updateField('notify_type', normalizeNotifyType(nextValue))
+              }
+            }}
+            aria-label={t('Notification Method')}
+            variant='outline'
+            size='lg'
+            spacing={2}
+            className='grid w-full grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3'
+          >
+            {NOTIFICATION_METHODS.map((method) => {
+              const Icon = NOTIFICATION_ICONS[method.value]
+              return (
+                <ToggleGroupItem
+                  key={method.value}
+                  value={method.value}
+                  className='h-auto min-h-14 w-full flex-col gap-1.5 px-3 py-3 sm:min-h-16'
+                >
+                  <Icon className='h-4 w-4 sm:h-5 sm:w-5' />
+                  <span className='max-w-full truncate text-xs font-medium sm:text-sm'>
+                    {t(method.label)}
+                  </span>
+                </ToggleGroupItem>
+              )
+            })}
+          </ToggleGroup>
+        </div>
+      )}
 
       {/* Warning Threshold */}
       <div className='space-y-1.5'>
@@ -357,24 +367,32 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         )}
 
         {/* Accept Unset Model Price */}
-        <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
-          <div className='space-y-0.5'>
-            <Label htmlFor='acceptUnsetPrice'>
-              {t('Accept Unpriced Models')}
-            </Label>
-            <p className='text-muted-foreground text-xs sm:text-sm'>
-              {t('Allow using models without price configuration')}
-            </p>
+        {/*
+          Hidden: the "accept unpriced models" toggle is not offered for now.
+          Kept as dead code (like the notification-method selector above) so it
+          can be re-enabled without re-wiring the settings state — flip
+          SHOW_ACCEPT_UNPRICED_MODELS in features/profile/constants.ts.
+        */}
+        {SHOW_ACCEPT_UNPRICED_MODELS && (
+          <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+            <div className='space-y-0.5'>
+              <Label htmlFor='acceptUnsetPrice'>
+                {t('Accept Unpriced Models')}
+              </Label>
+              <p className='text-muted-foreground text-xs sm:text-sm'>
+                {t('Allow using models without price configuration')}
+              </p>
+            </div>
+            <Switch
+              id='acceptUnsetPrice'
+              className='shrink-0'
+              checked={settings.accept_unset_model_ratio_model}
+              onCheckedChange={(checked) =>
+                updateField('accept_unset_model_ratio_model', checked)
+              }
+            />
           </div>
-          <Switch
-            id='acceptUnsetPrice'
-            className='shrink-0'
-            checked={settings.accept_unset_model_ratio_model}
-            onCheckedChange={(checked) =>
-              updateField('accept_unset_model_ratio_model', checked)
-            }
-          />
-        </div>
+        )}
 
         {/* Record IP Log */}
         <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
