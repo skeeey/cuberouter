@@ -35,7 +35,7 @@ import {
   NOTIFICATION_METHODS,
   SHOW_ACCEPT_UNPRICED_MODELS,
 } from '../../constants'
-import { parseUserSettings } from '../../lib'
+import { normalizeNotifyType, parseUserSettings } from '../../lib'
 import type { UserProfile, UserSettings, NotifyType } from '../../types'
 
 const NOTIFICATION_ICONS: Record<NotifyType, typeof Mail> = {
@@ -43,17 +43,6 @@ const NOTIFICATION_ICONS: Record<NotifyType, typeof Mail> = {
   webhook: Webhook,
   bark: Bell,
   gotify: Server,
-}
-
-const NOTIFICATION_VALUES = new Set<NotifyType>(
-  NOTIFICATION_METHODS.map((method) => method.value)
-)
-
-function normalizeNotifyType(value: unknown): NotifyType {
-  return typeof value === 'string' &&
-    NOTIFICATION_VALUES.has(value as NotifyType)
-    ? (value as NotifyType)
-    : 'email'
 }
 
 // ============================================================================
