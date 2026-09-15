@@ -48,6 +48,10 @@ import {
 import { cn } from '@/lib/utils'
 
 import {
+  SHOW_PRICE_SORT,
+  SHOW_RECHARGE_PRICE_MODE,
+  SHOW_SORT_CONTROL,
+  SORT_OPTIONS,
   VIEW_MODES,
   getSortLabels,
   type SortOption,
@@ -200,15 +204,24 @@ export function PricingToolbar(props: PricingToolbarProps) {
 
         <div className='flex flex-wrap items-center gap-2'>
           <div className='hidden items-center gap-2 sm:flex'>
-            <SegmentedControl
-              options={[
-                { value: 'standard', label: t('Standard') },
-                { value: 'recharge', label: t('Recharge') },
-              ]}
-              value={props.showRechargePrice ? 'recharge' : 'standard'}
-              onChange={handleRechargePriceChange}
-              ariaLabel={t('Price display mode')}
-            />
+            {/*
+              Hidden: the Standard / Recharge price-display switch is not
+              offered for now. The state, the props and the conversion behind it
+              (features/pricing/lib/dynamic-price.ts) all stay in place, so it
+              can be re-enabled without re-wiring anything — flip
+              SHOW_RECHARGE_PRICE_MODE in features/pricing/constants.ts.
+            */}
+            {SHOW_RECHARGE_PRICE_MODE && (
+              <SegmentedControl
+                options={[
+                  { value: 'standard', label: t('Standard') },
+                  { value: 'recharge', label: t('Recharge') },
+                ]}
+                value={props.showRechargePrice ? 'recharge' : 'standard'}
+                onChange={handleRechargePriceChange}
+                ariaLabel={t('Price display mode')}
+              />
+            )}
             <SegmentedControl
               options={[
                 { value: 'M', label: '/1M' },
@@ -220,38 +233,52 @@ export function PricingToolbar(props: PricingToolbarProps) {
             />
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  className='h-8 gap-1.5 px-3 text-xs'
-                />
-              }
-            >
-              <ArrowUpDown className='size-3.5' />
-              <span>{sortLabels[props.sortBy as SortOption] || t('Sort')}</span>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align='end' className='w-44'>
-              {Object.entries(sortLabels).map(([value, label]) => (
-                <DropdownMenuItem
-                  key={value}
-                  onClick={() => props.onSortChange(value)}
-                  className='gap-2'
-                >
-                  <Check
-                    className={cn(
-                      'size-4 shrink-0',
-                      props.sortBy === value ? 'opacity-100' : 'opacity-0'
-                    )}
+          {/*
+            The sort control is hidden while SHOW_SORT_CONTROL is false (the
+            model list keeps its name order); the price options inside it are
+            hidden separately by SHOW_PRICE_SORT, and the sort state, labels and
+            ?sort= parameter all stay wired. See features/pricing/constants.ts.
+          */}
+          {SHOW_SORT_CONTROL && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-8 gap-1.5 px-3 text-xs'
                   />
-                  {label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                }
+              >
+                <ArrowUpDown className='size-3.5' />
+                <span>
+                  {sortLabels[props.sortBy as SortOption] || t('Sort')}
+                </span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-44'>
+                {(Object.keys(sortLabels) as SortOption[])
+                  .filter(
+                    (value) => SHOW_PRICE_SORT || value === SORT_OPTIONS.NAME
+                  )
+                  .map((value) => (
+                    <DropdownMenuItem
+                      key={value}
+                      onClick={() => props.onSortChange(value)}
+                      className='gap-2'
+                    >
+                      <Check
+                        className={cn(
+                          'size-4 shrink-0',
+                          props.sortBy === value ? 'opacity-100' : 'opacity-0'
+                        )}
+                      />
+                      {sortLabels[value]}
+                    </DropdownMenuItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <SegmentedControl
             options={[

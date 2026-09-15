@@ -24,7 +24,10 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 
-import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
+import {
+  DEFAULT_PRICING_CARD_PAGE_SIZE,
+  DEFAULT_TOKEN_UNIT,
+} from '../constants'
 import type { OffPeakWindow, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
@@ -43,7 +46,7 @@ export interface ModelCardGridProps {
 export function ModelCardGrid(props: ModelCardGridProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
-  const pageSize = DEFAULT_PRICING_PAGE_SIZE
+  const pageSize = DEFAULT_PRICING_CARD_PAGE_SIZE
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const totalPages = Math.max(1, Math.ceil(props.models.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -74,7 +77,16 @@ export function ModelCardGrid(props: ModelCardGridProps) {
 
   return (
     <div className='space-y-4 sm:space-y-5'>
-      <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3'>
+      {/*
+        Column count follows the filter sidebar, which the page pins from xl up
+        (index.tsx) and turns into a toolbar drawer below that:
+          - below xl, no sidebar   → three columns
+          - xl (1280px), sidebar's 330px leaves room for two
+          - 2xl (1536px) and up, enough room for three again
+        The page size is a multiple of every count here, so no page ends on a
+        half-empty row.
+      */}
+      <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3'>
         {pagedModels.map((model) => (
           <ModelCard
             key={model.id ?? model.model_name}
