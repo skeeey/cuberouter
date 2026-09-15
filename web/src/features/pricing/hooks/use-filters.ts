@@ -30,6 +30,7 @@ import {
   SHOW_GROUP_FILTER,
   SHOW_PRICE_SORT,
   SHOW_QUOTA_TYPE_FILTER,
+  SHOW_RECHARGE_PRICE_MODE,
   SHOW_SORT_CONTROL,
   VIEW_MODES,
   type ViewMode,
@@ -96,7 +97,11 @@ export function useFilters(models: PricingModel[]) {
   const tokenUnit: TokenUnit =
     filterState.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
   const viewMode = normalizeViewMode(filterState.view)
-  const showRechargePrice = filterState.rechargePrice === true
+  // Same rule once more: the recharge price mode applies only while the toolbar
+  // still offers its switch, so a shared link cannot change the displayed
+  // prices with nothing on screen to show or reset that mode.
+  const showRechargePrice =
+    SHOW_RECHARGE_PRICE_MODE && filterState.rechargePrice === true
 
   const updateFilters = useCallback((updates: Record<string, unknown>) => {
     setFilterState((prev) => {
