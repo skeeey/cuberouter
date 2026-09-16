@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -23,6 +25,45 @@ func resetNativeProtocolDowngradeMemoForTest() {
 		nativeProtocolDowngradeMemo.Delete(key)
 		return true
 	})
+}
+
+// newNativeMessagesInfo 构造一次声明原生支持 messages 的 glm-5.3 会话。
+func newNativeMessagesInfo(baseURL string, channelID int) *relaycommon.RelayInfo {
+	return &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         channelID,
+			ChannelBaseUrl:    baseURL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "glm-5.3",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				ModelProtocols: map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			},
+		},
+		RequestURLPath:  "/v1/messages",
+		RelayFormat:     types.RelayFormatClaude,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		OriginModelName: "glm-5.3",
+	}
+}
+
+// newMessagesContext 构造一次 POST /v1/messages 的 gin 上下文。
+func newMessagesContext() *gin.Context {
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(`{"model":"glm-5.3"}`))
+	return context
+}
+
+// newRejectingUpstream 起一个固定返回 status/body 的假上游。
+func newRejectingUpstream(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	return server
 }
 
 // TestConvertOpenAIRequestPassthrough 锁定 OpenAI 直传契约：消息请求必须原样
@@ -177,4 +218,101 @@ func TestAstraflowDowngradesRejectedNativeProtocol(t *testing.T) {
 	require.NoError(t, err)
 	_, isClaudeRequest := converted.(*dto.ClaudeRequest)
 	assert.False(t, isClaudeRequest, "downgraded requests must be converted to chat")
+}
+
+// TestAstraflowKeepsNativeProtocolOnUnrelatedUpstreamError 锁定标记范围: 参数级
+// 的普通 4xx("unsupported parameter: temperature")不是协议拒绝, 不得让该组合被
+// 永久降级, 后续请求仍直连原生端点。
+func TestAstraflowKeepsNativeProtocolOnUnrelatedUpstreamError(t *testing.T) {
+	resetNativeProtocolDowngradeMemoForTest()
+	t.Cleanup(resetNativeProtocolDowngradeMemoForTest)
+
+	gin.SetMode(gin.TestMode)
+
+	const upstreamErrorBody = `{"error":{"message":"unsupported parameter: temperature","type":"invalid_request_error"}}`
+	server := newRejectingUpstream(t, http.StatusBadRequest, upstreamErrorBody)
+
+	info := newNativeMessagesInfo(server.URL, 21)
+	adaptor := &Adaptor{}
+
+	respAny, err := adaptor.DoRequest(newMessagesContext(), info, bytes.NewBufferString(`{"model":"glm-5.3"}`))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, upstreamErrorBody, string(body))
+
+	url, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/v1/messages", url, "a parameter-level 4xx must not downgrade the protocol")
+}
+
+// TestAstraflowRestoresAndMemoizesLargeErrorBody 锁定超大错误体的处理: 超过窥探上限
+// 的响应体读完后必须逐字节完整, 且命中签名时仍要记入降级记忆。
+func TestAstraflowRestoresAndMemoizesLargeErrorBody(t *testing.T) {
+	resetNativeProtocolDowngradeMemoForTest()
+	t.Cleanup(resetNativeProtocolDowngradeMemoForTest)
+
+	gin.SetMode(gin.TestMode)
+
+	upstreamErrorBody := `{"error":{"message":"not implemented","detail":"` +
+		strings.Repeat("x", nativeProtocolBodyPeekLimit) + `"}}`
+	require.Greater(t, len(upstreamErrorBody), nativeProtocolBodyPeekLimit, "fixture must exceed the peek limit")
+
+	server := newRejectingUpstream(t, http.StatusInternalServerError, upstreamErrorBody)
+
+	info := newNativeMessagesInfo(server.URL, 22)
+	adaptor := &Adaptor{}
+
+	url, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	require.Equal(t, server.URL+"/v1/messages", url)
+
+	respAny, err := adaptor.DoRequest(newMessagesContext(), info, bytes.NewBufferString(`{"model":"glm-5.3"}`))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, upstreamErrorBody, string(body), "the replayed prefix plus the remainder must equal the original body")
+
+	url, err = adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/v1/chat/completions", url, "a rejection in a large body must still downgrade")
+}
+
+// TestAstraflowDowngradeWatermarkKeepsInFlightRequestsNative 锁定水位线语义: 降级
+// 只对"记录之后才开始"的请求生效; 记录之前(已在途)的请求保持它发出时的原生决定,
+// 否则它的原生响应会被降级后的处理器按 chat 解析。
+func TestAstraflowDowngradeWatermarkKeepsInFlightRequestsNative(t *testing.T) {
+	resetNativeProtocolDowngradeMemoForTest()
+	t.Cleanup(resetNativeProtocolDowngradeMemoForTest)
+
+	gin.SetMode(gin.TestMode)
+
+	const baseURL = "https://api.modelverse.cn"
+	adaptor := &Adaptor{}
+
+	info := newNativeMessagesInfo(baseURL, 23)
+	url, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	require.Equal(t, baseURL+"/v1/messages", url)
+
+	// 模拟另一个请求刚刚因协议拒绝写入记忆。
+	nativeProtocolDowngradeMemo.Store(nativeProtocolMemoKey(info, dto.ModelProtocolMessages), time.Now())
+
+	info.StartTime = time.Now().Add(time.Second) // 记录之后才开始
+	url, err = adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, baseURL+"/v1/chat/completions", url, "requests started after the recording must downgrade")
+
+	info.StartTime = time.Now().Add(-time.Second) // 记录之前就已发出
+	url, err = adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, baseURL+"/v1/messages", url, "requests in flight before the recording must keep the native protocol")
 }
