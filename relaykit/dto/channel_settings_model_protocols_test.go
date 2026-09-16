@@ -50,6 +50,25 @@ func TestResolveModelProtocolsWithoutConfig(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+// TestResolveModelProtocolsOverlappingRegexIsDeterministic 锁定: 多个正则同时命中
+// 同一模型时取 key 字典序最小的那个。Go 的 map 遍历顺序随机, 若直接返回"第一个
+// 命中的键", 同一份配置在不同请求上会解析出不同协议; 因此这里重复解析确认稳定。
+func TestResolveModelProtocolsOverlappingRegexIsDeterministic(t *testing.T) {
+	settings := ChannelOtherSettings{ModelProtocols: map[string][]string{
+		"re:^gpt":    {ModelProtocolChat},
+		"re:-5$":     {ModelProtocolChat, ModelProtocolResponses},
+		"re:^gpt-5$": {ModelProtocolChat, ModelProtocolResponses, ModelProtocolMessages},
+	}}
+
+	// 三个键都命中 gpt-5;"re:-5$" 字典序最小('-' 0x2D < '^' 0x5E), 即胜出者。
+	want := []string{ModelProtocolChat, ModelProtocolResponses}
+	for range 16 {
+		got, found := settings.ResolveModelProtocols("gpt-5")
+		require.True(t, found)
+		require.Equal(t, want, got, "overlapping regex keys must resolve deterministically")
+	}
+}
+
 func TestValidateModelProtocols(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -84,6 +103,16 @@ func TestValidateModelProtocols(t *testing.T) {
 			name:     "empty key",
 			settings: ChannelOtherSettings{ModelProtocols: map[string][]string{" ": {ModelProtocolChat}}},
 			wantErr:  "must not be empty",
+		},
+		{
+			name:     "exact key with surrounding whitespace",
+			settings: ChannelOtherSettings{ModelProtocols: map[string][]string{" gpt-5 ": {ModelProtocolChat}}},
+			wantErr:  "surrounding whitespace",
+		},
+		{
+			name:     "fallback key with surrounding whitespace",
+			settings: ChannelOtherSettings{ModelProtocols: map[string][]string{" * ": {ModelProtocolChat}}},
+			wantErr:  "surrounding whitespace",
 		},
 		{
 			name:     "empty config is valid",

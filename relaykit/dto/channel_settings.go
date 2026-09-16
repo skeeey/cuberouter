@@ -164,13 +164,24 @@ func (s ChannelOtherSettings) ResolveModelProtocols(model string) ([]string, boo
 		return normalizeModelProtocols(best), true
 	}
 
+	// 多个正则同时命中时取 key 字典序最小的那个: map 遍历顺序是随机的, 若直接返回
+	// 第一个命中的键, 同一份配置 (如 "re:^gpt" 与 "re:-5$" 都能命中 "gpt-5") 在不同
+	// 请求上会解析出不同协议。
+	bestRegexKey := ""
+	var bestRegexProtocols []string
 	for key, protocols := range s.ModelProtocols {
 		if !strings.HasPrefix(key, modelProtocolRegexPrefix) {
 			continue
 		}
-		if matchModelProtocolRegex(strings.TrimPrefix(key, modelProtocolRegexPrefix), model) {
-			return normalizeModelProtocols(protocols), true
+		if !matchModelProtocolRegex(strings.TrimPrefix(key, modelProtocolRegexPrefix), model) {
+			continue
 		}
+		if bestRegexKey == "" || key < bestRegexKey {
+			bestRegexKey, bestRegexProtocols = key, protocols
+		}
+	}
+	if bestRegexKey != "" {
+		return normalizeModelProtocols(bestRegexProtocols), true
 	}
 
 	if protocols, ok := s.ModelProtocols[modelProtocolDefaultKey]; ok {
@@ -188,6 +199,11 @@ func (s *ChannelOtherSettings) ValidateModelProtocols() error {
 		trimmed := strings.TrimSpace(key)
 		if trimmed == "" {
 			return fmt.Errorf("model_protocols key must not be empty")
+		}
+		// 解析侧按原始键查找, 所以带前后空白的键必须在这里拒绝: 放过去能保存成功,
+		// 却永远匹配不到 (静默按"未声明"处理)。
+		if key != trimmed {
+			return fmt.Errorf("model_protocols key %q must not have surrounding whitespace", key)
 		}
 		if trimmed != modelProtocolDefaultKey {
 			if strings.HasPrefix(trimmed, modelProtocolRegexPrefix) {
