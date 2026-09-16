@@ -33,6 +33,7 @@ import { ProfileSecurityCard } from './components/profile-security-card'
 import { ProfileSettingsCard } from './components/profile-settings-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
 import { TwoFACard } from './components/two-fa-card'
+import { SHOW_PASSKEY_CARD, SHOW_SIDEBAR_MODULES_CARD } from './constants'
 import { useProfile } from './hooks'
 
 export function Profile() {
@@ -79,8 +80,18 @@ export function Profile() {
                     turnstileSiteKey={turnstileSiteKey}
                   />
                 )}
-                {canConfigureSidebar && <SidebarModulesCard />}
-                <PasskeyCard loading={loading} />
+                {canConfigureSidebar && SHOW_SIDEBAR_MODULES_CARD && (
+                  // Sidebar personalization hidden for now — the card and the
+                  // backend permission stay intact; re-enable via
+                  // SHOW_SIDEBAR_MODULES_CARD in features/profile/constants.ts.
+                  <SidebarModulesCard />
+                )}
+                {/*
+                  Passkey card hidden for now — the component and WebAuthn
+                  backend stay intact so it can be re-enabled via
+                  SHOW_PASSKEY_CARD in features/profile/constants.ts.
+                */}
+                {SHOW_PASSKEY_CARD && <PasskeyCard loading={loading} />}
                 <TwoFACard loading={loading} />
               </div>
             </div>

@@ -16,11 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { UserProfile, UserSettings } from '../types'
+import type { NotifyType, UserProfile, UserSettings } from '../types'
 
 // ============================================================================
 // Profile Formatting Utilities
 // ============================================================================
+
+/**
+ * Every notify_type the backend persists.
+ *
+ * Deliberately wider than the notification selector's NOTIFICATION_METHODS
+ * (features/profile/constants.ts), which only controls what the UI offers:
+ * a profile that already stores webhook / bark / gotify keeps that value, so
+ * loading and re-saving the settings form cannot silently switch the user's
+ * delivery channel to email.
+ */
+const PERSISTED_NOTIFY_TYPES = new Set<NotifyType>([
+  'email',
+  'webhook',
+  'bark',
+  'gotify',
+])
 
 /**
  * Parse user settings from JSON string
@@ -33,6 +49,17 @@ export function parseUserSettings(settingsJson?: string): UserSettings {
   } catch {
     return {}
   }
+}
+
+/**
+ * Normalize a stored notify_type: keep anything the backend can persist and
+ * fall back to email only for values that are missing or unknown.
+ */
+export function normalizeNotifyType(value: unknown): NotifyType {
+  return typeof value === 'string' &&
+    PERSISTED_NOTIFY_TYPES.has(value as NotifyType)
+    ? (value as NotifyType)
+    : 'email'
 }
 
 /**
