@@ -53,7 +53,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if info.RelayFormat == types.RelayFormatClaude &&
 		info.RelayMode != constant.RelayModeResponses &&
 		info.RelayMode != constant.RelayModeResponsesCompact {
-		if useNativeProtocol(info, dto.ModelProtocolMessages) {
+		if nativeMessagesRequest(info) {
 			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, requestPath, info.ChannelType), nil
 		}
 		return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
@@ -80,6 +80,18 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	if !hasAuthOverride {
 		req.Set("Authorization", "Bearer "+info.ApiKey)
+	}
+	// 直连上游 Anthropic 端点时必须带上 Claude 协议头(与 claude 适配器一致):
+	// 沿用客户端的 anthropic-version,缺省 2023-06-01;anthropic-beta 与渠道级
+	// Claude 头一并转发。转换路径上游只听 OpenAI 协议、responses 路径是 Responses
+	// 报文,都不加这些头。
+	if nativeMessagesRequest(info) {
+		anthropicVersion := c.Request.Header.Get("anthropic-version")
+		if anthropicVersion == "" {
+			anthropicVersion = "2023-06-01"
+		}
+		req.Set("anthropic-version", anthropicVersion)
+		claude.CommonClaudeHeadersOperation(c, req, info)
 	}
 	return nil
 }
@@ -144,10 +156,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	// claude 处理器: 全局 ChatCompletionsToResponsesPolicy 会把 Claude 格式请求
 	// 改道 Responses 协议(relay/claude_handler.go),那类响应不是 Anthropic 形状。
 	switch {
-	case info.RelayFormat == types.RelayFormatClaude &&
-		useNativeProtocol(info, dto.ModelProtocolMessages) &&
-		info.RelayMode != constant.RelayModeResponses &&
-		info.RelayMode != constant.RelayModeResponsesCompact:
+	case nativeMessagesRequest(info):
 		return (&claude.Adaptor{}).DoResponse(c, resp, info)
 	case info.RelayMode == constant.RelayModeResponses:
 		if responsesDowngradedToChat(info) {
@@ -229,6 +238,19 @@ func useNativeProtocol(info *relaycommon.RelayInfo, protocol string) bool {
 	return slices.Contains(protocols, protocol) && !nativeProtocolDowngraded(info, protocol)
 }
 
+// nativeMessagesRequest 报告本次 /v1/messages 会话是否直连上游的 Anthropic 端点。
+// 排除 RelayModeResponses*: 全局 ChatCompletionsToResponsesPolicy 会把 Claude 格式
+// 请求改道 Responses 协议,那类会话收发都是 Responses 形状,不走 Anthropic 端点。
+// 三处必须同判——GetRequestURL 选路径、SetupRequestHeader 补 Claude 协议头、
+// DoResponse 选响应处理器,判法不一致会让请求与响应解析错配。
+func nativeMessagesRequest(info *relaycommon.RelayInfo) bool {
+	return info != nil &&
+		info.RelayFormat == types.RelayFormatClaude &&
+		info.RelayMode != constant.RelayModeResponses &&
+		info.RelayMode != constant.RelayModeResponsesCompact &&
+		useNativeProtocol(info, dto.ModelProtocolMessages)
+}
+
 // nativeProtocolDowngradeMemo 记住"已声明原生、但上游明确拒绝"的 (渠道, 模型, 协议):
 // 进程内生效,命中后该组合自动降级为转换,避免同一个配置错误每次都撞上游。
 // 重启即失效;不写库、不改渠道配置。值是记录时刻,见 nativeProtocolDowngraded。
@@ -302,6 +324,12 @@ func (a *Adaptor) detectRejectedNativeProtocol(info *relaycommon.RelayInfo, resp
 	if info == nil || info.ChannelMeta == nil || resp == nil || resp.Body == nil || resp.StatusCode < 400 {
 		return
 	}
+	// 渠道测试用的是合成请求(header 透传同样对测试请求短路,
+	// relay/channel/api_request.go),它命中的拒绝不构成"上游不支持该协议"的证据,
+	// 不得因此永久降级生产流量的 (渠道, 模型, 协议)。
+	if info.IsChannelTest {
+		return
+	}
 	protocol := sentProtocol(info)
 	if protocol == dto.ModelProtocolChat || !useNativeProtocol(info, protocol) {
 		return
@@ -341,9 +369,11 @@ func responsesDowngradedToChat(info *relaycommon.RelayInfo) bool {
 	return info != nil &&
 		info.RelayFormat == types.RelayFormatOpenAIResponses &&
 		info.RelayMode == constant.RelayModeResponses &&
+		// 先于下面两个透传判断: ChannelMeta 为 nil 时 info.ChannelSetting 会 panic,
+		// 而 useNativeProtocol 容忍 nil(该情形下 responses 取现状基线 true,短路返回 false)。
+		!useNativeProtocol(info, dto.ModelProtocolResponses) &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&
-		!model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
-		!useNativeProtocol(info, dto.ModelProtocolResponses)
+		!model_setting.GetGlobalSettings().PassThroughRequestEnabled
 }
 
 // Ensure compile-time interface check.

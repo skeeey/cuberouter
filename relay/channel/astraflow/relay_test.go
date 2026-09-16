@@ -479,6 +479,154 @@ func TestRelayChainStreamingChatCompletion(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "Hello")
 }
 
+// TestRelayChainStreamingResponsesDowngradedToChat 锁定流式降级契约: 模型只声明
+// chat(未声明 responses)时, 客户端 stream:true 的 /v1/responses 必须打成
+// {base}/v1/chat/completions, 上游的 chat SSE 在网关内转成 Responses 事件流——
+// 客户端收到 response.output_text.delta, 不是 chat 分块, 也不得被判为不完整流。
+func TestRelayChainStreamingResponsesDowngradedToChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	defer func() { constant.StreamingTimeout = oldStreamingTimeout }()
+
+	const requestBody = `{"model":"claude-sonnet-5","input":"hi","stream":true}`
+	const upstreamBody = "" +
+		`data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1700000000,"model":"claude-sonnet-5","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}` + "\n\n" +
+		`data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1700000000,"model":"claude-sonnet-5","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}` + "\n\n" +
+		`data: [DONE]` + "\n"
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Request.Header.Set("Accept", "text/event-stream")
+
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "claude-sonnet-5",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				ModelProtocols: map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			},
+		},
+		RequestURLPath:  "/v1/responses",
+		RelayFormat:     types.RelayFormatOpenAIResponses,
+		RelayMode:       relayconstant.RelayModeResponses,
+		IsStream:        true,
+		OriginModelName: "claude-sonnet-5",
+	}
+
+	respAny, err := adaptor.DoRequest(context, info, bytes.NewBufferString(requestBody))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, "/v1/chat/completions", gotPath, "a model without a native responses declaration must be served over chat")
+
+	usageAny, apiErr := adaptor.DoResponse(context, resp, info)
+	require.Nil(t, apiErr, "a converted chat stream must not be reported as an incomplete responses stream")
+	require.NotNil(t, usageAny)
+	usage, ok := usageAny.(*dto.Usage)
+	require.True(t, ok, "expected *dto.Usage, got %T", usageAny)
+	assert.Equal(t, 4, usage.PromptTokens)
+	assert.Equal(t, 2, usage.CompletionTokens)
+
+	clientBody := recorder.Body.String()
+	assert.Contains(t, clientBody, `"type":"response.output_text.delta"`, "client must receive the responses event stream")
+	assert.Contains(t, clientBody, "Hello")
+	assert.NotContains(t, clientBody, "content_block_delta")
+	assert.NotContains(t, clientBody, "chat.completion.chunk", "chat chunks would mean the upstream shape leaked to the client")
+}
+
+// TestRelayChainStreamingNativeMessages 锁定原生 Anthropic 流式契约: 声明 messages
+// 的模型直接收发 Anthropic SSE, usage 取自报文的 input_tokens/output_tokens,
+// 不按文本估算。
+func TestRelayChainStreamingNativeMessages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	defer func() { constant.StreamingTimeout = oldStreamingTimeout }()
+
+	const requestBody = `{"model":"glm-5.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"stream":true}`
+	const upstreamBody = "" +
+		"event: message_start\n" +
+		`data: {"type":"message_start","message":{"id":"msg_s1","type":"message","role":"assistant","model":"glm-5.3","content":[],"usage":{"input_tokens":7,"output_tokens":1}}}` + "\n\n" +
+		"event: content_block_start\n" +
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` + "\n\n" +
+		"event: content_block_delta\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}` + "\n\n" +
+		"event: content_block_stop\n" +
+		`data: {"type":"content_block_stop","index":0}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}` + "\n\n" +
+		"event: message_stop\n" +
+		`data: {"type":"message_stop"}` + "\n\n"
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Request.Header.Set("Accept", "text/event-stream")
+
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "glm-5.3",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				ModelProtocols: map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			},
+		},
+		RequestURLPath:  "/v1/messages",
+		RelayFormat:     types.RelayFormatClaude,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		IsStream:        true,
+		OriginModelName: "glm-5.3",
+	}
+
+	respAny, err := adaptor.DoRequest(context, info, bytes.NewBufferString(requestBody))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, "/v1/messages", gotPath)
+
+	usageAny, apiErr := adaptor.DoResponse(context, resp, info)
+	require.Nil(t, apiErr)
+	require.NotNil(t, usageAny)
+	usage, ok := usageAny.(*dto.Usage)
+	require.True(t, ok, "expected *dto.Usage, got %T", usageAny)
+	assert.Equal(t, 7, usage.PromptTokens, "prompt tokens must come from message_start, not the estimator")
+	assert.Equal(t, 5, usage.CompletionTokens, "completion tokens must come from message_delta, not the estimator")
+
+	clientBody := recorder.Body.String()
+	assert.Contains(t, clientBody, "content_block_delta", "native anthropic events must pass through untouched")
+	assert.Contains(t, clientBody, "Hello")
+}
+
 // TestRelayChainClaudeFormatResponsesModeKeepsResponsesHandler 锁定改道契约:
 // 全局 ChatCompletionsToResponsesPolicy 会把 Claude 格式请求改道 Responses
 // 协议(relay/claude_handler.go),此时 RelayFormat 仍是 Claude, RelayMode 已是
