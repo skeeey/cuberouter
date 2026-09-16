@@ -332,6 +332,76 @@ func TestRelayChainStreamingChatCompletion(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "Hello")
 }
 
+// TestRelayChainClaudeFormatResponsesModeKeepsResponsesHandler 锁定改道契约:
+// 全局 ChatCompletionsToResponsesPolicy 会把 Claude 格式请求改道 Responses
+// 协议(relay/claude_handler.go),此时 RelayFormat 仍是 Claude, RelayMode 已是
+// Responses,上游收发都是 Responses 形状;即使模型声明了原生 messages,响应也
+// 必须由 Responses 处理器解析——claude 处理器会把它当 Anthropic 解析,客户端将
+// 收到 Anthropic 事件而非 Responses 事件。
+func TestRelayChainClaudeFormatResponsesModeKeepsResponsesHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	defer func() { constant.StreamingTimeout = oldStreamingTimeout }()
+
+	const requestBody = `{"model":"glm-5.3","input":"hi","stream":true}`
+	const upstreamBody = "" +
+		`data: {"type":"response.output_text.delta","delta":"Hello"}` + "\n\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_s1","object":"response","status":"completed","model":"glm-5.3","usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}}` + "\n\n"
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Request.Header.Set("Accept", "text/event-stream")
+
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "glm-5.3",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				ModelProtocols: map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			},
+		},
+		RequestURLPath:  "/v1/responses",
+		RelayFormat:     types.RelayFormatClaude,
+		RelayMode:       relayconstant.RelayModeResponses,
+		IsStream:        true,
+		OriginModelName: "glm-5.3",
+	}
+
+	respAny, err := adaptor.DoRequest(context, info, bytes.NewBufferString(requestBody))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, "/v1/responses", gotPath)
+
+	usageAny, apiErr := adaptor.DoResponse(context, resp, info)
+	require.Nil(t, apiErr, "a responses reply must not be reported as an incomplete anthropic stream")
+	require.NotNil(t, usageAny)
+	usage, ok := usageAny.(*dto.Usage)
+	require.True(t, ok, "expected *dto.Usage, got %T", usageAny)
+	assert.Equal(t, 5, usage.PromptTokens)
+	assert.Equal(t, 3, usage.CompletionTokens)
+
+	clientBody := recorder.Body.String()
+	assert.Contains(t, clientBody, `"type":"response.output_text.delta"`, "client must receive the responses event stream")
+	assert.NotContains(t, clientBody, "content_block_delta", "claude events would mean the anthropic handler parsed a responses payload")
+}
+
 // TestRelayChainStreamingResponses 锁定流式 responses 契约: 原生 Responses SSE
 // 以 response.completed 收尾(没有 chat 的 finish_reason,也没有 [DONE]),必须按
 // Responses 协议解析,不得判为不完整流。

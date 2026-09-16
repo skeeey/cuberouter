@@ -110,8 +110,14 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	// responses 的报文只有 Responses 处理器认得: chat 处理器会把响应体按 chat 解析,
 	// 非流式拿不到 usage,流式会把 response.completed 收尾判成不完整流。
+	// 声明原生 messages 的模型只在本次会话确实是 Anthropic Messages 时才交给
+	// claude 处理器: 全局 ChatCompletionsToResponsesPolicy 会把 Claude 格式请求
+	// 改道 Responses 协议(relay/claude_handler.go),那类响应不是 Anthropic 形状。
 	switch {
-	case info.RelayFormat == types.RelayFormatClaude && useNativeProtocol(info, dto.ModelProtocolMessages):
+	case info.RelayFormat == types.RelayFormatClaude &&
+		useNativeProtocol(info, dto.ModelProtocolMessages) &&
+		info.RelayMode != constant.RelayModeResponses &&
+		info.RelayMode != constant.RelayModeResponsesCompact:
 		return (&claude.Adaptor{}).DoResponse(c, resp, info)
 	case info.RelayMode == constant.RelayModeResponses:
 		if info.IsStream {
