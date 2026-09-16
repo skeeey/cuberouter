@@ -93,6 +93,24 @@ export function filterByQuotaType(
 }
 
 /**
+ * Whether a model is served by the given endpoint filter value.
+ *
+ * ENDPOINT_TYPES.VIDEO is the one value that is not carried by any model: it
+ * stands for both video styles, so it matches a model served through either the
+ * OpenAI-style or the Ark-style video endpoint.
+ */
+export function matchesEndpointType(
+  model: PricingModel,
+  endpointType: string
+): boolean {
+  const wanted =
+    endpointType === ENDPOINT_TYPES.VIDEO
+      ? [ENDPOINT_TYPES.OPENAI_VIDEO, ENDPOINT_TYPES.ARK_VIDEO]
+      : [endpointType]
+  return wanted.some((type) => model.supported_endpoint_types?.includes(type))
+}
+
+/**
  * Filter models by endpoint type
  */
 export function filterByEndpointType(
@@ -100,13 +118,35 @@ export function filterByEndpointType(
   endpointType: string
 ): PricingModel[] {
   if (endpointType === ENDPOINT_TYPES.ALL) return models
-  return models.filter((m) =>
-    m.supported_endpoint_types?.includes(endpointType)
-  )
+  return models.filter((model) => matchesEndpointType(model, endpointType))
 }
 
 /**
- * Get model price for sorting
+ * Sort key for the price options.
+ *
+ * TODO(pricing-sort): the price sort is hidden (SHOW_PRICE_SORT in
+ * ../constants) until this key is reworked — it does not describe the price the
+ * card shows, for four reasons:
+ *
+ * 1. Units are mixed. A token model's `model_ratio` (a dimensionless
+ *    multiplier) is compared against a per-request model's `model_price`
+ *    (USD/request) as if the two shared a scale.
+ * 2. The group ratio is ignored. Cards price with `getDisplayGroupRatio`
+ *    (lib/price.ts), while this reads the raw ratio, so with a group selected
+ *    the order no longer follows the numbers on screen.
+ * 3. Dynamic billing never reaches the comparator. tiered_expr (including the
+ *    peak/off-peak expressions), per-second video (`video_prices`) and
+ *    task-usage models are all sorted by `model_ratio`, which is the 37.5
+ *    placeholder whenever the model has no configured ratio
+ *    (setting/ratio_setting/model_ratio.go:388).
+ * 4. Unpriced models therefore tie with each other instead of sitting in their
+ *    own bucket.
+ *
+ * Agreed direction: sort by the lowest visible unit price of each billing type
+ * — input $/1M for token models, $/request for per-request models, the normal
+ * (peak) $/s for video, the first tier for expressions, the primary field for
+ * task usage — and put models with no price last. Peak/off-peak uses the normal
+ * price unless a separate toggle is asked for.
  */
 function getModelPrice(model: PricingModel): number {
   return model.quota_type === 0 ? model.model_ratio : model.model_price || 0
@@ -190,7 +230,7 @@ export function extractAllTags(models: PricingModel[]): string[] {
     }
   })
 
-  return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
+  return [...tagSet].sort((a, b) => a.localeCompare(b))
 }
 
 /**

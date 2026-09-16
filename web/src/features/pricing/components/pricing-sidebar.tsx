@@ -34,11 +34,13 @@ import {
   ENDPOINT_TYPES,
   FILTER_ALL,
   QUOTA_TYPES,
+  SHOW_GROUP_FILTER,
+  SHOW_QUOTA_TYPE_FILTER,
   getEndpointTypeLabels,
   getQuotaTypeLabels,
 } from '../constants'
 import { hasTaskUsageSchema } from '../lib/dynamic-price'
-import { parseTags } from '../lib/filters'
+import { matchesEndpointType, parseTags } from '../lib/filters'
 import type { PricingModel, PricingVendor } from '../types'
 
 type FilterOption = {
@@ -250,9 +252,8 @@ export function PricingSidebar(props: PricingSidebarProps) {
       .map(([value, label]) => ({
         value,
         label,
-        count: countBy(
-          props.models,
-          (model) => model.supported_endpoint_types?.includes(value) ?? false
+        count: countBy(props.models, (model) =>
+          matchesEndpointType(model, value)
         ),
       })),
   ]
@@ -286,12 +287,19 @@ export function PricingSidebar(props: PricingSidebarProps) {
       )}
 
       <div className='space-y-1'>
-        <FilterSection
-          title={t('Groups')}
-          value={props.groupFilter}
-          options={groupOptions}
-          onChange={props.onGroupChange}
-        />
+        {/*
+          The Groups and Pricing Type sections are hidden while their flags are
+          false (features/pricing/constants.ts); the option lists above, the
+          props and the filter state all stay in place.
+        */}
+        {SHOW_GROUP_FILTER && (
+          <FilterSection
+            title={t('Groups')}
+            value={props.groupFilter}
+            options={groupOptions}
+            onChange={props.onGroupChange}
+          />
+        )}
         <FilterSection
           title={t('All Vendors')}
           value={props.vendorFilter}
@@ -304,12 +312,14 @@ export function PricingSidebar(props: PricingSidebarProps) {
           options={tagOptions}
           onChange={props.onTagChange}
         />
-        <FilterSection
-          title={t('Pricing Type')}
-          value={props.quotaTypeFilter}
-          options={quotaOptions}
-          onChange={props.onQuotaTypeChange}
-        />
+        {SHOW_QUOTA_TYPE_FILTER && (
+          <FilterSection
+            title={t('Pricing Type')}
+            value={props.quotaTypeFilter}
+            options={quotaOptions}
+            onChange={props.onQuotaTypeChange}
+          />
+        )}
         <FilterSection
           title={t('Endpoint Type')}
           value={props.endpointTypeFilter}

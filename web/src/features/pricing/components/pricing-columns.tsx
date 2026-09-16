@@ -95,6 +95,9 @@ export function usePricingColumns(
         )
       },
       minSize: 200,
+      // The table renders no sorted row model (pricing-table.tsx), so a header
+      // that offers sorting would only toggle an icon the rows ignore.
+      enableSorting: false,
     },
 
     // Type column
