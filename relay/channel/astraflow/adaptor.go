@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -42,12 +44,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if requestPath == "" {
 		return info.ChannelBaseUrl, nil
 	}
-	// /v1/messages (RelayFormatClaude) 的请求体由 ConvertClaudeRequest 转成
-	// OpenAI 格式，必须打到上游 OpenAI chat 端点，而不是透传客户端路径
-	// （上游只说 OpenAI 协议）。
+	// /v1/messages (RelayFormatClaude): 声明原生支持 messages 就透传客户端路径，
+	// 否则请求体已被 ConvertClaudeRequest 转成 OpenAI 格式,必须打到 chat 端点。
 	if info.RelayFormat == types.RelayFormatClaude &&
 		info.RelayMode != constant.RelayModeResponses &&
 		info.RelayMode != constant.RelayModeResponsesCompact {
+		if useNativeProtocol(info, dto.ModelProtocolMessages) {
+			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, requestPath, info.ChannelType), nil
+		}
 		return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
 	}
 	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, requestPath, info.ChannelType), nil
@@ -106,16 +110,20 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	// responses 的报文只有 Responses 处理器认得: chat 处理器会把响应体按 chat 解析,
 	// 非流式拿不到 usage,流式会把 response.completed 收尾判成不完整流。
-	if info.RelayMode == constant.RelayModeResponses {
+	switch {
+	case info.RelayFormat == types.RelayFormatClaude && useNativeProtocol(info, dto.ModelProtocolMessages):
+		return (&claude.Adaptor{}).DoResponse(c, resp, info)
+	case info.RelayMode == constant.RelayModeResponses:
 		if info.IsStream {
 			return openai.OaiResponsesStreamHandler(c, info, resp)
 		}
 		return openai.OaiResponsesHandler(c, info, resp)
+	default:
+		if info.IsStream {
+			return openai.OaiStreamHandler(c, info, resp)
+		}
+		return openai.OpenaiHandler(c, info, resp)
 	}
-	if info.IsStream {
-		return openai.OaiStreamHandler(c, info, resp)
-	}
-	return openai.OpenaiHandler(c, info, resp)
 }
 
 func (a *Adaptor) GetModelList() []string {
@@ -127,7 +135,11 @@ func (a *Adaptor) GetChannelName() string {
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
-	// 上游只说 OpenAI 协议：把 Anthropic 请求体转成 OpenAI chat 请求，
+	// 声明原生支持 messages 的模型: 请求体原样转发,响应由 claude 处理器解析。
+	if useNativeProtocol(info, dto.ModelProtocolMessages) {
+		return request, nil
+	}
+	// 上游只说 OpenAI 协议: 把 Anthropic 请求体转成 OpenAI chat 请求，
 	// 由 GetRequestURL 指向 /v1/chat/completions；响应侧由 openai handler
 	// 按 RelayFormatClaude 转回 Anthropic 格式（含流式逐块转换）。
 	result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAI, request)
@@ -146,6 +158,32 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	return nil, errors.New("not implemented")
+}
+
+// upstreamModelID 返回发往上游的模型名。
+func upstreamModelID(info *relaycommon.RelayInfo) string {
+	if info != nil && info.UpstreamModelName != "" {
+		return info.UpstreamModelName
+	}
+	if info == nil {
+		return ""
+	}
+	return info.OriginModelName
+}
+
+// useNativeProtocol 报告本次请求能否直连上游的该协议。
+// 必须区分"未命中声明"与"命中但不含该协议": 两者现状基线不同——messages 的现状
+// 是被转成 chat(基线 false),responses 的现状是原样直连(基线 true)。未配置时
+// 即按基线走,保证零回归;命中时以声明为准。
+func useNativeProtocol(info *relaycommon.RelayInfo, protocol string) bool {
+	if info == nil || info.ChannelMeta == nil {
+		return protocol == dto.ModelProtocolResponses
+	}
+	protocols, declared := info.ChannelOtherSettings.ResolveModelProtocols(upstreamModelID(info))
+	if !declared {
+		return protocol == dto.ModelProtocolResponses
+	}
+	return slices.Contains(protocols, protocol)
 }
 
 // Ensure compile-time interface check.

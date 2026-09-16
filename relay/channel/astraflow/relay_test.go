@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/security_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,11 +29,14 @@ type relayChainCase struct {
 	relayMode            int
 	relayFormat          types.RelayFormat
 	model                string
+	protocols            map[string][]string // 渠道 model_protocols 声明
 	requestBody          string
 	upstreamBody         string
 	isStream             bool
-	wantPromptTokens     int // -1 表示不断言
-	wantCompletionTokens int // -1 表示不断言
+	wantUpstreamPath     string // 上游应命中的路径;空表示等于 path
+	skipRequestEquality  bool   // 转换过的请求体不做逐字节断言
+	wantPromptTokens     int    // -1 表示不断言
+	wantCompletionTokens int    // -1 表示不断言
 	wantBodyContains     string
 }
 
@@ -88,6 +92,33 @@ func TestRelayChainNonTaskModes(t *testing.T) {
 			wantPromptTokens: -1, wantCompletionTokens: -1,
 			wantBodyContains: `https://cdn.example.com/cat.png`,
 		},
+		{
+			name:             "anthropic messages native passthrough",
+			path:             "/v1/messages",
+			wantUpstreamPath: "/v1/messages",
+			relayMode:        relayconstant.RelayModeChatCompletions,
+			relayFormat:      types.RelayFormatClaude,
+			model:            "glm-5.3",
+			protocols:        map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			requestBody:      `{"model":"glm-5.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
+			upstreamBody:     `{"id":"msg_1","type":"message","role":"assistant","model":"glm-5.3","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2}}`,
+			wantPromptTokens: 3, wantCompletionTokens: 2,
+			wantBodyContains: `"pong"`,
+		},
+		{
+			name:                "anthropic messages downgraded when model does not declare them",
+			path:                "/v1/messages",
+			wantUpstreamPath:    "/v1/chat/completions",
+			relayMode:           relayconstant.RelayModeChatCompletions,
+			relayFormat:         types.RelayFormatClaude,
+			model:               "deepseek-v3",
+			protocols:           map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			requestBody:         `{"model":"deepseek-v3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
+			upstreamBody:        `{"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"deepseek-v3","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			skipRequestEquality: true,
+			wantPromptTokens:    3, wantCompletionTokens: 2,
+			wantBodyContains: `"type":"message"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -125,6 +156,44 @@ func TestGetRequestURLRejectsCleartextUpstream(t *testing.T) {
 	require.ErrorContains(t, err, "must use HTTPS")
 }
 
+// TestConvertClaudeRequestKeepsNativeBodyWhenDeclared 锁定: 声明原生 messages 的
+// 模型,请求体指针原样返回(不做 Anthropic→chat 转换);未声明时返回转换后的
+// OpenAI chat 请求。
+func TestConvertClaudeRequestKeepsNativeBodyWhenDeclared(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	newInfo := func(protocols map[string][]string) *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelType:          constant.ChannelTypeAstraFlow,
+				UpstreamModelName:    "glm-5.3",
+				ChannelOtherSettings: dto.ChannelOtherSettings{ModelProtocols: protocols},
+			},
+			RelayFormat:     types.RelayFormatClaude,
+			RelayMode:       relayconstant.RelayModeChatCompletions,
+			OriginModelName: "glm-5.3",
+		}
+	}
+
+	adaptor := &Adaptor{}
+	request := &dto.ClaudeRequest{
+		Model:     "glm-5.3",
+		MaxTokens: lo.ToPtr(uint(16)),
+		Messages:  []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+	}
+
+	converted, err := adaptor.ConvertClaudeRequest(context, newInfo(map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}}), request)
+	require.NoError(t, err)
+	assert.Same(t, request, converted, "declared-native messages must be forwarded untouched")
+
+	converted, err = adaptor.ConvertClaudeRequest(context, newInfo(map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}}), request)
+	require.NoError(t, err)
+	_, isClaudeRequest := converted.(*dto.ClaudeRequest)
+	assert.False(t, isClaudeRequest, "unmatched model must still be converted to a chat request")
+}
+
 // runRelayChain 执行一次完整链路：DoRequest 打向假上游并断言请求契约，
 // DoResponse 解析响应并断言 usage 与回写内容。
 func runRelayChain(t *testing.T, tt relayChainCase) {
@@ -151,10 +220,11 @@ func runRelayChain(t *testing.T, tt relayChainCase) {
 	adaptor := &Adaptor{}
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelBaseUrl:    server.URL,
-			ChannelType:       constant.ChannelTypeAstraFlow,
-			ApiKey:            "sk-test",
-			UpstreamModelName: tt.model,
+			ChannelBaseUrl:       server.URL,
+			ChannelType:          constant.ChannelTypeAstraFlow,
+			ApiKey:               "sk-test",
+			UpstreamModelName:    tt.model,
+			ChannelOtherSettings: dto.ChannelOtherSettings{ModelProtocols: tt.protocols},
 		},
 		RequestURLPath:  tt.path,
 		RelayFormat:     tt.relayFormat,
@@ -170,10 +240,16 @@ func runRelayChain(t *testing.T, tt relayChainCase) {
 	defer func() { _ = resp.Body.Close() }()
 
 	// 上游请求契约：方法、路径、Bearer 鉴权、请求体逐字节一致。
+	wantPath := tt.wantUpstreamPath
+	if wantPath == "" {
+		wantPath = tt.path
+	}
 	assert.Equal(t, http.MethodPost, gotMethod)
-	assert.Equal(t, tt.path, gotPath)
+	assert.Equal(t, wantPath, gotPath)
 	assert.Equal(t, "Bearer sk-test", gotAuth)
-	assert.Equal(t, tt.requestBody, string(gotBody))
+	if !tt.skipRequestEquality {
+		assert.Equal(t, tt.requestBody, string(gotBody))
+	}
 
 	usageAny, apiErr := adaptor.DoResponse(context, resp, info)
 	require.Nil(t, apiErr)
