@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/security_setting"
@@ -37,55 +37,54 @@ type relayChainCase struct {
 }
 
 // TestRelayChainNonTaskModes 锁定多模态非任务链路契约：chat/responses/
-// embeddings/image 四种模式都走同一 OpenAI 直传链路——上游路径沿用客户端
-// 路径、携带 Bearer 鉴权、请求体原样转发、响应经 OpenaiHandler 解析回写。
+// embeddings/image 四种模式共用同一 OpenAI 直传链路——上游路径沿用客户端
+// 路径、携带 Bearer 鉴权、请求体原样转发；响应按各自协议解析：chat/embeddings/
+// image 走 chat 处理器，responses 走 Responses 处理器并取其原生 usage。
 func TestRelayChainNonTaskModes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []relayChainCase{
 		{
-			name:          "chat completions",
-			path:          "/v1/chat/completions",
-			relayMode:     relayconstant.RelayModeChatCompletions,
-			relayFormat:   types.RelayFormatOpenAI,
-			model:         "deepseek-v3",
-			requestBody:   `{"model":"deepseek-v3","messages":[{"role":"user","content":"hi"}]}`,
-			upstreamBody:  `{"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"deepseek-v3","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`,
+			name:             "chat completions",
+			path:             "/v1/chat/completions",
+			relayMode:        relayconstant.RelayModeChatCompletions,
+			relayFormat:      types.RelayFormatOpenAI,
+			model:            "deepseek-v3",
+			requestBody:      `{"model":"deepseek-v3","messages":[{"role":"user","content":"hi"}]}`,
+			upstreamBody:     `{"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"deepseek-v3","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`,
 			wantPromptTokens: 12, wantCompletionTokens: 8,
 			wantBodyContains: `"chatcmpl-1"`,
 		},
 		{
-			name:         "responses",
-			path:         "/v1/responses",
-			relayMode:    relayconstant.RelayModeResponses,
-			relayFormat:  types.RelayFormatOpenAIResponses,
-			model:        "deepseek-v3",
-			requestBody:  `{"model":"deepseek-v3","input":"hi"}`,
-			upstreamBody: `{"id":"resp_1","object":"response","created_at":1700000000,"model":"deepseek-v3","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"pong"}]}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}`,
-			// responses 响应体没有 prompt_tokens，OpenaiHandler 走估算路径，
-			// usage 非 nil 且响应体原样回写即可（该模式真实链路如此）。
-			wantPromptTokens: -1, wantCompletionTokens: -1,
+			name:             "responses",
+			path:             "/v1/responses",
+			relayMode:        relayconstant.RelayModeResponses,
+			relayFormat:      types.RelayFormatOpenAIResponses,
+			model:            "deepseek-v3",
+			requestBody:      `{"model":"deepseek-v3","input":"hi"}`,
+			upstreamBody:     `{"id":"resp_1","object":"response","created_at":1700000000,"model":"deepseek-v3","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"pong","annotations":[]}]}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}`,
+			wantPromptTokens: 5, wantCompletionTokens: 3,
 			wantBodyContains: `"resp_1"`,
 		},
 		{
-			name:          "embeddings",
-			path:          "/v1/embeddings",
-			relayMode:     relayconstant.RelayModeEmbeddings,
-			relayFormat:   types.RelayFormatEmbedding,
-			model:         "text-embedding-3-large",
-			requestBody:   `{"model":"text-embedding-3-large","input":"hi"}`,
-			upstreamBody:  `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"model":"text-embedding-3-large","usage":{"prompt_tokens":8,"total_tokens":8}}`,
+			name:             "embeddings",
+			path:             "/v1/embeddings",
+			relayMode:        relayconstant.RelayModeEmbeddings,
+			relayFormat:      types.RelayFormatEmbedding,
+			model:            "text-embedding-3-large",
+			requestBody:      `{"model":"text-embedding-3-large","input":"hi"}`,
+			upstreamBody:     `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"model":"text-embedding-3-large","usage":{"prompt_tokens":8,"total_tokens":8}}`,
 			wantPromptTokens: 8, wantCompletionTokens: 0,
 			wantBodyContains: `"embedding"`,
 		},
 		{
-			name:          "image generation",
-			path:          "/v1/images/generations",
-			relayMode:     relayconstant.RelayModeImagesGenerations,
-			relayFormat:   types.RelayFormatOpenAIImage,
-			model:         "gpt-image-1",
-			requestBody:   `{"model":"gpt-image-1","prompt":"a cat","n":1,"size":"1024x1024"}`,
-			upstreamBody:  `{"created":1700000000,"data":[{"url":"https://cdn.example.com/cat.png"}]}`,
+			name:             "image generation",
+			path:             "/v1/images/generations",
+			relayMode:        relayconstant.RelayModeImagesGenerations,
+			relayFormat:      types.RelayFormatOpenAIImage,
+			model:            "gpt-image-1",
+			requestBody:      `{"model":"gpt-image-1","prompt":"a cat","n":1,"size":"1024x1024"}`,
+			upstreamBody:     `{"created":1700000000,"data":[{"url":"https://cdn.example.com/cat.png"}]}`,
 			wantPromptTokens: -1, wantCompletionTokens: -1,
 			wantBodyContains: `https://cdn.example.com/cat.png`,
 		},
@@ -152,9 +151,9 @@ func runRelayChain(t *testing.T, tt relayChainCase) {
 	adaptor := &Adaptor{}
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelBaseUrl:   server.URL,
-			ChannelType:      constant.ChannelTypeAstraFlow,
-			ApiKey:           "sk-test",
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
 			UpstreamModelName: tt.model,
 		},
 		RequestURLPath:  tt.path,
@@ -254,5 +253,66 @@ func TestRelayChainStreamingChatCompletion(t *testing.T) {
 	usage, ok := usageAny.(*dto.Usage)
 	require.True(t, ok, "expected *dto.Usage, got %T", usageAny)
 	assert.Greater(t, usage.CompletionTokens, 0, "stream usage must be derived from relayed text")
+	assert.Contains(t, recorder.Body.String(), "Hello")
+}
+
+// TestRelayChainStreamingResponses 锁定流式 responses 契约: 原生 Responses SSE
+// 以 response.completed 收尾(没有 chat 的 finish_reason,也没有 [DONE]),必须按
+// Responses 协议解析,不得判为不完整流。
+func TestRelayChainStreamingResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	defer func() { constant.StreamingTimeout = oldStreamingTimeout }()
+
+	const requestBody = `{"model":"deepseek-v3","input":"hi","stream":true}`
+	const upstreamBody = "" +
+		`data: {"type":"response.output_text.delta","delta":"Hello"}` + "\n\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_s1","object":"response","status":"completed","model":"deepseek-v3","usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}` + "\n\n"
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Request.Header.Set("Accept", "text/event-stream")
+
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "deepseek-v3",
+		},
+		RequestURLPath:  "/v1/responses",
+		RelayFormat:     types.RelayFormatOpenAIResponses,
+		RelayMode:       relayconstant.RelayModeResponses,
+		IsStream:        true,
+		OriginModelName: "deepseek-v3",
+	}
+
+	respAny, err := adaptor.DoRequest(context, info, bytes.NewBufferString(requestBody))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, "/v1/responses", gotPath)
+
+	usageAny, apiErr := adaptor.DoResponse(context, resp, info)
+	require.Nil(t, apiErr, "native responses stream must not be reported as incomplete")
+	require.NotNil(t, usageAny)
+	usage, ok := usageAny.(*dto.Usage)
+	require.True(t, ok, "expected *dto.Usage, got %T", usageAny)
+	assert.Equal(t, 4, usage.PromptTokens)
+	assert.Equal(t, 2, usage.CompletionTokens)
 	assert.Contains(t, recorder.Body.String(), "Hello")
 }

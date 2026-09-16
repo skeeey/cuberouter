@@ -104,12 +104,18 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	if info.IsStream {
-		usage, err = openai.OaiStreamHandler(c, info, resp)
-	} else {
-		usage, err = openai.OpenaiHandler(c, info, resp)
+	// responses 的报文只有 Responses 处理器认得: chat 处理器会把响应体按 chat 解析,
+	// 非流式拿不到 usage,流式会把 response.completed 收尾判成不完整流。
+	if info.RelayMode == constant.RelayModeResponses {
+		if info.IsStream {
+			return openai.OaiResponsesStreamHandler(c, info, resp)
+		}
+		return openai.OaiResponsesHandler(c, info, resp)
 	}
-	return
+	if info.IsStream {
+		return openai.OaiStreamHandler(c, info, resp)
+	}
+	return openai.OpenaiHandler(c, info, resp)
 }
 
 func (a *Adaptor) GetModelList() []string {
