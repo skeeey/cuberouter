@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/security_setting"
 
 	"github.com/gin-gonic/gin"
@@ -227,10 +228,15 @@ func useNativeProtocol(info *relaycommon.RelayInfo, protocol string) bool {
 // (relay/chat_completions_via_responses.go),那类会话的 RelayMode 同样是 Responses,
 // 但上游报文本来就是 Responses,响应侧由 host 的 OaiResponsesToChat* 固定按
 // Responses 解析且不经过本适配器的 DoResponse——改了请求形状就会与响应解析错配。
+// 请求体透传时同样不降级: host 不会调用 ConvertOpenAIResponsesRequest
+// (relay/responses_handler.go),上游收到的是客户端原始的 Responses 报文,
+// 只能打 Responses 端点。
 func responsesDowngradedToChat(info *relaycommon.RelayInfo) bool {
 	return info != nil &&
 		info.RelayFormat == types.RelayFormatOpenAIResponses &&
 		info.RelayMode == constant.RelayModeResponses &&
+		!info.ChannelSetting.PassThroughBodyEnabled &&
+		!model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
 		!useNativeProtocol(info, dto.ModelProtocolResponses)
 }
 

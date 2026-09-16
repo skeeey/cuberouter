@@ -12,6 +12,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/security_setting"
 
 	"github.com/gin-gonic/gin"
@@ -181,6 +182,53 @@ func TestGetRequestURLRejectsCleartextUpstream(t *testing.T) {
 
 	_, err := adaptor.GetRequestURL(info)
 	require.ErrorContains(t, err, "must use HTTPS")
+}
+
+// TestGetRequestURLKeepsResponsesPathWhenPassThroughEnabled 锁定透传与会话降级的边界:
+// 请求体透传时(全局 PassThroughRequestEnabled 或渠道 PassThroughBodyEnabled)host
+// 不会调用 ConvertOpenAIResponsesRequest(relay/responses_handler.go),发往上游的是
+// 客户端原始的 Responses 报文,因此即使模型未声明原生 responses 也必须打
+// {base}/v1/responses;关闭透传时同一模型才降级到 chat 端点。
+func TestGetRequestURLKeepsResponsesPathWhenPassThroughEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oldGlobalPassThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled
+	defer func() { model_setting.GetGlobalSettings().PassThroughRequestEnabled = oldGlobalPassThrough }()
+
+	newInfo := func() *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelBaseUrl:    "https://api.modelverse.cn",
+				ChannelType:       constant.ChannelTypeAstraFlow,
+				UpstreamModelName: "claude-sonnet-5",
+				ChannelOtherSettings: dto.ChannelOtherSettings{
+					ModelProtocols: map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+				},
+			},
+			RequestURLPath:  "/v1/responses",
+			RelayFormat:     types.RelayFormatOpenAIResponses,
+			RelayMode:       relayconstant.RelayModeResponses,
+			OriginModelName: "claude-sonnet-5",
+		}
+	}
+
+	adaptor := &Adaptor{}
+
+	// 反例: 关闭透传时该模型确实降级到 chat 端点。
+	url, err := adaptor.GetRequestURL(newInfo())
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.modelverse.cn/v1/chat/completions", url)
+
+	channelInfo := newInfo()
+	channelInfo.ChannelSetting.PassThroughBodyEnabled = true
+	url, err = adaptor.GetRequestURL(channelInfo)
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.modelverse.cn/v1/responses", url, "a pass-through body was never converted")
+
+	model_setting.GetGlobalSettings().PassThroughRequestEnabled = true
+	url, err = adaptor.GetRequestURL(newInfo())
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.modelverse.cn/v1/responses", url, "a pass-through body was never converted")
 }
 
 // TestConvertClaudeRequestKeepsNativeBodyWhenDeclared 锁定: 声明原生 messages 的
