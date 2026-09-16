@@ -1,15 +1,29 @@
 package astraflow
 
 import (
+	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func resetNativeProtocolDowngradeMemoForTest() {
+	nativeProtocolDowngradeMemo.Range(func(key, _ any) bool {
+		nativeProtocolDowngradeMemo.Delete(key)
+		return true
+	})
+}
 
 // TestConvertOpenAIRequestPassthrough 锁定 OpenAI 直传契约：消息请求必须原样
 // 转发给上游，nil 请求必须报错而不是 panic。
@@ -98,4 +112,69 @@ func TestGetRequestURLForwardsRequestPath(t *testing.T) {
 			assert.Equal(t, tt.want, url)
 		})
 	}
+}
+
+// TestAstraflowDowngradesRejectedNativeProtocol 锁定运行时兜底: 配置声明原生
+// 支持 messages,但上游用 "not implemented" 明确拒绝时,该组合在进程内被记住,
+// 后续请求不再直连,改为降级转换;且探测读取的错误体必须被还原,不影响调用方解析。
+func TestAstraflowDowngradesRejectedNativeProtocol(t *testing.T) {
+	resetNativeProtocolDowngradeMemoForTest()
+	t.Cleanup(resetNativeProtocolDowngradeMemoForTest)
+
+	gin.SetMode(gin.TestMode)
+
+	const upstreamErrorBody = `{"error":{"message":"not implemented","type":"upstream_error"}}`
+	const requestBody = `{"model":"glm-5.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		_, _ = w.Write([]byte(upstreamErrorBody))
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(requestBody))
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         7,
+			ChannelBaseUrl:    server.URL,
+			ChannelType:       constant.ChannelTypeAstraFlow,
+			ApiKey:            "sk-test",
+			UpstreamModelName: "glm-5.3",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				ModelProtocols: map[string][]string{"glm-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			},
+		},
+		RequestURLPath:  "/v1/messages",
+		RelayFormat:     types.RelayFormatClaude,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		OriginModelName: "glm-5.3",
+	}
+	adaptor := &Adaptor{}
+
+	url, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	require.Equal(t, server.URL+"/v1/messages", url, "declared native messages must be used before the first failure")
+
+	respAny, err := adaptor.DoRequest(context, info, bytes.NewBufferString(requestBody))
+	require.NoError(t, err)
+	resp, ok := respAny.(*http.Response)
+	require.True(t, ok, "expected *http.Response, got %T", respAny)
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, upstreamErrorBody, string(body), "peeking must restore the response body for the caller")
+
+	url, err = adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/v1/chat/completions", url, "after a rejection the combination must downgrade to chat")
+
+	converted, err := adaptor.ConvertClaudeRequest(context, info, &dto.ClaudeRequest{Model: "glm-5.3"})
+	require.NoError(t, err)
+	_, isClaudeRequest := converted.(*dto.ClaudeRequest)
+	assert.False(t, isClaudeRequest, "downgraded requests must be converted to chat")
 }

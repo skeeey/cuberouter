@@ -1,12 +1,14 @@
 package astraflow
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -126,7 +128,12 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	return channel.DoApiRequest(a, c, info, requestBody)
+	resp, err := channel.DoApiRequest(a, c, info, requestBody)
+	if err != nil {
+		return resp, err
+	}
+	a.detectRejectedNativeProtocol(info, resp)
+	return resp, nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
@@ -218,7 +225,79 @@ func useNativeProtocol(info *relaycommon.RelayInfo, protocol string) bool {
 	if !declared {
 		return protocol == dto.ModelProtocolResponses
 	}
-	return slices.Contains(protocols, protocol)
+	return slices.Contains(protocols, protocol) && !nativeProtocolDowngraded(info, protocol)
+}
+
+// nativeProtocolDowngradeMemo 记住"已声明原生、但上游明确拒绝"的 (渠道, 模型, 协议):
+// 进程内生效,命中后该组合自动降级为转换,避免同一个配置错误每次都撞上游。
+// 重启即失效;不写库、不改渠道配置。
+var nativeProtocolDowngradeMemo sync.Map // key: channelID|model|protocol
+
+const nativeProtocolBodyPeekLimit = 4 * 1024
+
+// protocolUnsupportedMarkers 是上游拒绝某协议时的错误文案特征(小写子串)。
+var protocolUnsupportedMarkers = []string{"not implemented", "unsupported", "does not support"}
+
+func nativeProtocolMemoKey(info *relaycommon.RelayInfo, protocol string) string {
+	return fmt.Sprintf("%d|%s|%s", info.ChannelId, upstreamModelID(info), protocol)
+}
+
+func nativeProtocolDowngraded(info *relaycommon.RelayInfo, protocol string) bool {
+	_, downgraded := nativeProtocolDowngradeMemo.Load(nativeProtocolMemoKey(info, protocol))
+	return downgraded
+}
+
+func upstreamRejectsProtocol(message string) bool {
+	lower := strings.ToLower(message)
+	for _, marker := range protocolUnsupportedMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// sentProtocol 返回本次请求实际发往上游的协议。
+func sentProtocol(info *relaycommon.RelayInfo) string {
+	if info.RelayMode == constant.RelayModeResponses {
+		return dto.ModelProtocolResponses
+	}
+	if info.RelayFormat == types.RelayFormatClaude {
+		return dto.ModelProtocolMessages
+	}
+	return dto.ModelProtocolChat
+}
+
+// detectRejectedNativeProtocol 在上游非 2xx 且错误体命中"协议不支持"签名时,把
+// (渠道, 模型, 协议) 记入降级记忆。读取的响应体用 MultiReader 还原,不影响后续
+// service.RelayErrorHandler 解析。
+func (a *Adaptor) detectRejectedNativeProtocol(info *relaycommon.RelayInfo, resp *http.Response) {
+	if info == nil || info.ChannelMeta == nil || resp == nil || resp.Body == nil || resp.StatusCode < 400 {
+		return
+	}
+	protocol := sentProtocol(info)
+	if protocol == dto.ModelProtocolChat || !useNativeProtocol(info, protocol) {
+		return
+	}
+	peeked, err := io.ReadAll(io.LimitReader(resp.Body, nativeProtocolBodyPeekLimit))
+	if err != nil {
+		return
+	}
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(peeked), resp.Body), resp.Body}
+	if !upstreamRejectsProtocol(string(peeked)) {
+		return
+	}
+	key := nativeProtocolMemoKey(info, protocol)
+	if _, loaded := nativeProtocolDowngradeMemo.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	common.SysLog(fmt.Sprintf(
+		"astraflow: upstream rejected native %s (channel_id=%d model=%s status=%d), downgrading subsequent requests to chat: %s",
+		protocol, info.ChannelId, upstreamModelID(info), resp.StatusCode, common.LocalLogPreview(string(peeked)),
+	))
 }
 
 // responsesDowngradedToChat 报告本次会话的 Responses 请求是否需要降级为 chat 发出
