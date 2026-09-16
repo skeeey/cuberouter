@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -90,6 +91,12 @@ type ChannelOtherSettings struct {
 	// rejection. Empty follows the default allow policy. Accepted values:
 	// "", "allow", "safe", "strict".
 	ToolLossPolicy string `json:"tool_loss_policy,omitempty"`
+	// ModelProtocols 按模型声明上游原生支持的协议,取值 ModelProtocolChat /
+	// ModelProtocolResponses / ModelProtocolMessages。键支持精确模型名、末尾 * 的
+	// 前缀通配("claude-*")、"re:<正则>",以及兜底 "*";值为空数组表示该模型没有
+	// 文本协议。未配置或未命中即视为"不声明",调用方按现状处理。
+	// 当前仅 AstraFlow(59)消费。
+	ModelProtocols map[string][]string `json:"model_protocols,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
@@ -111,6 +118,144 @@ func (s *ChannelOtherSettings) ValidateToolLossPolicy() error {
 	default:
 		return fmt.Errorf("invalid tool_loss_policy: %s", s.ToolLossPolicy)
 	}
+}
+
+const (
+	ModelProtocolChat      = "chat"
+	ModelProtocolResponses = "responses"
+	ModelProtocolMessages  = "messages"
+)
+
+const (
+	modelProtocolDefaultKey  = "*"
+	modelProtocolRegexPrefix = "re:"
+)
+
+// modelProtocolRegexCache caches compiled "re:" patterns. Model-protocol matching
+// runs on the request hot path, so patterns must not be recompiled per request.
+var modelProtocolRegexCache sync.Map // pattern string -> *regexp.Regexp (nil when invalid)
+
+// ResolveModelProtocols 返回 model 命中的协议声明。匹配顺序: 精确名 > 最长前缀通配
+// > "re:" 正则 > 兜底 "*"; 都没命中返回 (nil, false)。
+func (s ChannelOtherSettings) ResolveModelProtocols(model string) ([]string, bool) {
+	if len(s.ModelProtocols) == 0 {
+		return nil, false
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil, false
+	}
+	if protocols, ok := s.ModelProtocols[model]; ok {
+		return normalizeModelProtocols(protocols), true
+	}
+
+	bestPrefix := ""
+	var best []string
+	for key, protocols := range s.ModelProtocols {
+		prefix, ok := modelProtocolPrefix(key)
+		if !ok || !strings.HasPrefix(model, prefix) {
+			continue
+		}
+		if len(prefix) > len(bestPrefix) {
+			bestPrefix, best = prefix, protocols
+		}
+	}
+	if bestPrefix != "" {
+		return normalizeModelProtocols(best), true
+	}
+
+	for key, protocols := range s.ModelProtocols {
+		if !strings.HasPrefix(key, modelProtocolRegexPrefix) {
+			continue
+		}
+		if matchModelProtocolRegex(strings.TrimPrefix(key, modelProtocolRegexPrefix), model) {
+			return normalizeModelProtocols(protocols), true
+		}
+	}
+
+	if protocols, ok := s.ModelProtocols[modelProtocolDefaultKey]; ok {
+		return normalizeModelProtocols(protocols), true
+	}
+	return nil, false
+}
+
+// ValidateModelProtocols 校验 model_protocols 的键与值,供渠道保存时调用。
+func (s *ChannelOtherSettings) ValidateModelProtocols() error {
+	if s == nil || len(s.ModelProtocols) == 0 {
+		return nil
+	}
+	for key, protocols := range s.ModelProtocols {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			return fmt.Errorf("model_protocols key must not be empty")
+		}
+		if trimmed != modelProtocolDefaultKey {
+			if strings.HasPrefix(trimmed, modelProtocolRegexPrefix) {
+				pattern := strings.TrimPrefix(trimmed, modelProtocolRegexPrefix)
+				if pattern == "" {
+					return fmt.Errorf("model_protocols key %q has an empty regex", key)
+				}
+				if _, err := regexp.Compile(pattern); err != nil {
+					return fmt.Errorf("model_protocols key %q has an invalid regex: %w", key, err)
+				}
+			} else if _, ok := modelProtocolPrefix(trimmed); !ok && strings.Contains(trimmed, modelProtocolDefaultKey) {
+				return fmt.Errorf("model_protocols key %q: wildcard is only supported as a single trailing '*'", key)
+			}
+		}
+		for _, protocol := range protocols {
+			switch strings.TrimSpace(protocol) {
+			case ModelProtocolChat, ModelProtocolResponses, ModelProtocolMessages:
+			default:
+				return fmt.Errorf("model_protocols[%q] has unsupported protocol %q", key, protocol)
+			}
+		}
+	}
+	return nil
+}
+
+// modelProtocolPrefix 把 "claude-*" 解析为前缀 "claude-";非末尾单个 * 返回 false。
+func modelProtocolPrefix(pattern string) (string, bool) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || pattern == modelProtocolDefaultKey {
+		return "", false
+	}
+	if !strings.HasSuffix(pattern, modelProtocolDefaultKey) || strings.Count(pattern, modelProtocolDefaultKey) != 1 {
+		return "", false
+	}
+	return strings.TrimSuffix(pattern, modelProtocolDefaultKey), true
+}
+
+// normalizeModelProtocols 去掉空白与重复项;空列表返回非 nil 空切片(表示"命中但没有协议")。
+func normalizeModelProtocols(protocols []string) []string {
+	if len(protocols) == 0 {
+		return []string{}
+	}
+	normalized := make([]string, 0, len(protocols))
+	for _, protocol := range protocols {
+		protocol = strings.TrimSpace(protocol)
+		if protocol == "" || slices.Contains(normalized, protocol) {
+			continue
+		}
+		normalized = append(normalized, protocol)
+	}
+	return normalized
+}
+
+func matchModelProtocolRegex(pattern string, model string) bool {
+	if pattern == "" {
+		return false
+	}
+	if cached, ok := modelProtocolRegexCache.Load(pattern); ok {
+		re, _ := cached.(*regexp.Regexp)
+		return re != nil && re.MatchString(model)
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		modelProtocolRegexCache.Store(pattern, (*regexp.Regexp)(nil))
+		return false
+	}
+	modelProtocolRegexCache.Store(pattern, re)
+	return re.MatchString(model)
 }
 
 const (
