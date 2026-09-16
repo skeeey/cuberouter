@@ -98,3 +98,44 @@ func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(
 		})
 	}
 }
+
+func TestChannelValidateSettingsRejectsInvalidModelProtocols(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings string
+		wantErr  string
+	}{
+		{
+			name:     "valid config",
+			settings: `{"model_protocols":{"claude-*":["chat","messages"],"*":["chat"]}}`,
+		},
+		{
+			name:     "unknown protocol",
+			settings: `{"model_protocols":{"*":["chatt"]}}`,
+			wantErr:  "unsupported protocol",
+		},
+		{
+			name:     "wildcard in the middle",
+			settings: `{"model_protocols":{"cl*de":["chat"]}}`,
+			wantErr:  "wildcard",
+		},
+		{
+			name:     "invalid regex",
+			settings: `{"model_protocols":{"re:[":["chat"]}}`,
+			wantErr:  "invalid regex",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &Channel{OtherSettings: tt.settings}
+			err := channel.ValidateSettings()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
