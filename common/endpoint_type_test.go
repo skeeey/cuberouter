@@ -70,6 +70,18 @@ func TestAstraFlowMultiModelEndpointTypes(t *testing.T) {
 	}
 }
 
+// TestDeepSeekChannelRegistration 锁定 DeepSeek 渠道（43）的端点类型映射：
+// 上游同时提供 OpenAI chat、Responses 与 Anthropic messages 三种端点，
+// 渠道声明必须包含三者，否则 /v1/models 与模型页只会展示 chat。
+func TestDeepSeekChannelRegistration(t *testing.T) {
+	endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeDeepSeek, "deepseek-v4-pro")
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAI,
+		constant.EndpointTypeOpenAIResponse,
+		constant.EndpointTypeAnthropic,
+	}, endpointTypes)
+}
+
 // TestVideoOnlyChannelsKeepOpenAIVideo 锁定拆分后的回归契约：Sora/DoubaoVideo
 // 渠道不随模型名变化，始终只暴露 OpenAI video 任务端点。
 func TestVideoOnlyChannelsKeepOpenAIVideo(t *testing.T) {

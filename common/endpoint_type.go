@@ -28,6 +28,14 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
 	case constant.ChannelTypeXai:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
+	case constant.ChannelTypeDeepSeek:
+		// DeepSeek 同时提供 OpenAI chat、Responses 与 Anthropic messages 端点，
+		// 见 relay/channel/deepseek/adaptor.go 的 GetRequestURL。
+		endpointTypes = []constant.EndpointType{
+			constant.EndpointTypeOpenAI,
+			constant.EndpointTypeOpenAIResponse,
+			constant.EndpointTypeAnthropic,
+		}
 	case constant.ChannelTypeSora:
 		fallthrough
 	case constant.ChannelTypeDoubaoVideo:
