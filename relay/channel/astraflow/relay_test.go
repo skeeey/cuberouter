@@ -71,6 +71,33 @@ func TestRelayChainNonTaskModes(t *testing.T) {
 			wantBodyContains: `"resp_1"`,
 		},
 		{
+			name:             "responses native passthrough",
+			path:             "/v1/responses",
+			wantUpstreamPath: "/v1/responses",
+			relayMode:        relayconstant.RelayModeResponses,
+			relayFormat:      types.RelayFormatOpenAIResponses,
+			model:            "gpt-5.5",
+			protocols:        map[string][]string{"gpt-*": {dto.ModelProtocolChat, dto.ModelProtocolResponses}},
+			requestBody:      `{"model":"gpt-5.5","input":"hi"}`,
+			upstreamBody:     `{"id":"resp_1","object":"response","created_at":1700000000,"model":"gpt-5.5","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"pong","annotations":[]}]}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}`,
+			wantPromptTokens: 5, wantCompletionTokens: 3,
+			wantBodyContains: `"resp_1"`,
+		},
+		{
+			name:                "responses downgraded when the model does not declare them",
+			path:                "/v1/responses",
+			wantUpstreamPath:    "/v1/chat/completions",
+			relayMode:           relayconstant.RelayModeResponses,
+			relayFormat:         types.RelayFormatOpenAIResponses,
+			model:               "claude-sonnet-5",
+			protocols:           map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			requestBody:         `{"model":"claude-sonnet-5","input":"hi"}`,
+			upstreamBody:        `{"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"claude-sonnet-5","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}`,
+			skipRequestEquality: true,
+			wantPromptTokens:    5, wantCompletionTokens: 3,
+			wantBodyContains: `"object":"response"`,
+		},
+		{
 			name:             "embeddings",
 			path:             "/v1/embeddings",
 			relayMode:        relayconstant.RelayModeEmbeddings,
@@ -192,6 +219,78 @@ func TestConvertClaudeRequestKeepsNativeBodyWhenDeclared(t *testing.T) {
 	require.NoError(t, err)
 	_, isClaudeRequest := converted.(*dto.ClaudeRequest)
 	assert.False(t, isClaudeRequest, "unmatched model must still be converted to a chat request")
+}
+
+// TestConvertOpenAIResponsesRequestDowngradesToChat 锁定降级契约：客户端确实以
+// Responses 协议发起、且模型未声明原生 responses 时，请求体必须转成 OpenAI chat
+// 请求（链路用例的 DoRequest 直接收原始请求体，转换与否只能在这里锁住）；声明了
+// responses 或未配置时原样透传。改道会话（RelayFormat 非 Responses，见
+// ChatCompletionsToResponsesPolicy）的上游报文本来就是 Responses，响应由 host 的
+// OaiResponsesToChat* 固定解析，同样不得改动请求形状。
+func TestConvertOpenAIResponsesRequestDowngradesToChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	newInfo := func(protocols map[string][]string, relayFormat types.RelayFormat) *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelType:          constant.ChannelTypeAstraFlow,
+				UpstreamModelName:    "claude-sonnet-5",
+				ChannelOtherSettings: dto.ChannelOtherSettings{ModelProtocols: protocols},
+			},
+			RelayFormat:     relayFormat,
+			RelayMode:       relayconstant.RelayModeResponses,
+			OriginModelName: "claude-sonnet-5",
+		}
+	}
+
+	tests := []struct {
+		name        string
+		protocols   map[string][]string
+		relayFormat types.RelayFormat
+		wantChat    bool
+	}{
+		{
+			name:        "declared responses stays native",
+			protocols:   map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolResponses}},
+			relayFormat: types.RelayFormatOpenAIResponses,
+		},
+		{
+			name:        "declared without responses downgrades to chat",
+			protocols:   map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			relayFormat: types.RelayFormatOpenAIResponses,
+			wantChat:    true,
+		},
+		{
+			name:        "no declaration keeps the responses baseline",
+			relayFormat: types.RelayFormatOpenAIResponses,
+		},
+		{
+			name:        "policy reroute stays native",
+			protocols:   map[string][]string{"claude-*": {dto.ModelProtocolChat, dto.ModelProtocolMessages}},
+			relayFormat: types.RelayFormatClaude,
+		},
+	}
+
+	adaptor := &Adaptor{}
+	request := dto.OpenAIResponsesRequest{Model: "claude-sonnet-5", Input: []byte(`"hi"`)}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			converted, err := adaptor.ConvertOpenAIResponsesRequest(context, newInfo(tt.protocols, tt.relayFormat), request)
+			require.NoError(t, err)
+			if !tt.wantChat {
+				assert.Equal(t, request, converted, "responses request must be forwarded untouched")
+				return
+			}
+			chatRequest, ok := converted.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok, "expected a chat request, got %T", converted)
+			assert.Equal(t, "claude-sonnet-5", chatRequest.Model)
+			require.Len(t, chatRequest.Messages, 1)
+			assert.Equal(t, "hi", chatRequest.Messages[0].Content)
+		})
+	}
 }
 
 // runRelayChain 执行一次完整链路：DoRequest 打向假上游并断言请求契约，

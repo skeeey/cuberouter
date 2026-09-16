@@ -54,6 +54,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		}
 		return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
 	}
+	// responses: 声明原生支持就透传,否则请求体已转成 chat,必须打到 chat 端点。
+	if responsesDowngradedToChat(info) {
+		return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
+	}
 	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, requestPath, info.ChannelType), nil
 }
 
@@ -100,7 +104,24 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	return request, nil
+	// 声明原生支持 responses 的模型(含未配置时的现状基线)、以及改道来的会话
+	// (见 responsesDowngradedToChat): 请求体原样转发。
+	if !responsesDowngradedToChat(info) {
+		return request, nil
+	}
+	// 其余模型: 降级为 chat 请求,响应侧由 OaiChatToResponses* 转回 Responses 形状。
+	result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAI, &request)
+	if err != nil {
+		return nil, err
+	}
+	aiRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	if !ok {
+		return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
+	}
+	if info.SupportStreamOptions && info.IsStream {
+		aiRequest.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+	}
+	return aiRequest, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -120,6 +141,13 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		info.RelayMode != constant.RelayModeResponsesCompact:
 		return (&claude.Adaptor{}).DoResponse(c, resp, info)
 	case info.RelayMode == constant.RelayModeResponses:
+		if responsesDowngradedToChat(info) {
+			// 上游收到的是 chat 响应,转成 Responses 形状给客户端。
+			if info.IsStream {
+				return openai.OaiChatToResponsesStreamHandler(c, info, resp)
+			}
+			return openai.OaiChatToResponsesHandler(c, info, resp)
+		}
 		if info.IsStream {
 			return openai.OaiResponsesStreamHandler(c, info, resp)
 		}
@@ -190,6 +218,20 @@ func useNativeProtocol(info *relaycommon.RelayInfo, protocol string) bool {
 		return protocol == dto.ModelProtocolResponses
 	}
 	return slices.Contains(protocols, protocol)
+}
+
+// responsesDowngradedToChat 报告本次会话的 Responses 请求是否需要降级为 chat 发出
+// (请求体转 chat、打 chat 端点、响应由 OaiChatToResponses* 转回)。
+// 只有客户端确实以 Responses 协议发起的会话才降级: 全局
+// ChatCompletionsToResponsesPolicy 会把 chat/messages 客户端改道到 Responses 协议
+// (relay/chat_completions_via_responses.go),那类会话的 RelayMode 同样是 Responses,
+// 但上游报文本来就是 Responses,响应侧由 host 的 OaiResponsesToChat* 固定按
+// Responses 解析且不经过本适配器的 DoResponse——改了请求形状就会与响应解析错配。
+func responsesDowngradedToChat(info *relaycommon.RelayInfo) bool {
+	return info != nil &&
+		info.RelayFormat == types.RelayFormatOpenAIResponses &&
+		info.RelayMode == constant.RelayModeResponses &&
+		!useNativeProtocol(info, dto.ModelProtocolResponses)
 }
 
 // Ensure compile-time interface check.
