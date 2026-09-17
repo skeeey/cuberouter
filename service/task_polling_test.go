@@ -999,3 +999,67 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 		})
 	}
 }
+
+// cubeRouterEnvelopePollingAdaptor 模拟"上游本身也是 CubeRouter 系"的渠道：轮询响应
+// 就是一份 CubeRouter 任务信封，成功时带 result_url。
+type cubeRouterEnvelopePollingAdaptor struct {
+	resultURL string
+}
+
+func (a *cubeRouterEnvelopePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *cubeRouterEnvelopePollingAdaptor) FetchMode() string { return "per_task" }
+
+func (a *cubeRouterEnvelopePollingAdaptor) FetchTask(_ string, _ string, task *model.Task, _ string) (*http.Response, error) {
+	body, err := common.Marshal(map[string]any{
+		"code": "success",
+		"data": map[string]any{
+			"task_id":    task.GetUpstreamTaskID(),
+			"status":     "SUCCESS",
+			"progress":   "100%",
+			"result_url": a.resultURL,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body))}, nil
+}
+
+// 走 CubeRouter 信封捷径时不该调用插件/适配器钩子；返回 UNKNOWN 让误调用立刻暴露。
+func (a *cubeRouterEnvelopePollingAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{Status: model.TaskStatusUnknown}, nil
+}
+
+func (a *cubeRouterEnvelopePollingAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.TaskInfo) int {
+	return 0
+}
+
+// 上游轮询响应是 CubeRouter 任务信封时，必须保留信封里的 result_url。曾经它被解进
+// model.Task（PrivateData 是 json:"-"）而丢失，导致成功任务被写成自指的代理地址
+// {ServerAddress}/v1/videos/{id}/content，客户端与 /v1/videos/{id}/content 都会失败。
+func TestUpdateVideoTasksKeepsResultURLFromCubeRouterEnvelope(t *testing.T) {
+	truncate(t)
+
+	const channelID = 103
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_url", "upstream_url")
+
+	const upstreamURL = "https://upstream.example/video.mp4?Expires=1&Signature=abc"
+	adaptor := &cubeRouterEnvelopePollingAdaptor{resultURL: upstreamURL}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	require.NoError(t, UpdateVideoTasks(ctx, constant.TaskPlatform("kling"), map[int][]string{
+		channelID: {task.GetUpstreamTaskID()},
+	}, map[string]*model.Task{task.GetUpstreamTaskID(): task}))
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	require.EqualValues(t, model.TaskStatusSuccess, stored.Status)
+	assert.Equal(t, upstreamURL, stored.GetResultURL())
+}

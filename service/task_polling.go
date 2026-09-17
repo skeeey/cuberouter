@@ -508,13 +508,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as CubeRouter response format
-	var responseItems taskdto.TaskResponse[model.Task]
+	// 按 DTO 解析而不是 model.Task：model.Task 的 PrivateData 是 json:"-"，
+	// 从上游信封里解不出 result_url，成功任务会被写成自指的代理地址
+	// {ServerAddress}/v1/videos/{id}/content，客户端拿到的链接直接不可用。
+	var responseItems taskdto.TaskResponse[taskdto.TaskDto]
 	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as CubeRouter response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
-		taskResult.Status = string(t.Status)
-		taskResult.Url = t.GetResultURL()
+		taskResult.Status = t.Status
+		taskResult.Url = t.ResultURL
 		taskResult.Progress = t.Progress
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
