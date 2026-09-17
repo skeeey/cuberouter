@@ -17,7 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+
+// The group picker ships hidden (SHOW_KEY_GROUP_SELECTOR = false). Every case in
+// this file drives that picker and the Auto controls that hang off it, so the
+// flag is forced on here to keep covering the behaviour that returns when it is
+// flipped back. The shipped, picker-hidden default is covered separately in
+// ./group-visibility.test.tsx.
+vi.mock('../../constants', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../constants')>()),
+  SHOW_KEY_GROUP_SELECTOR: true,
+}))
 
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')

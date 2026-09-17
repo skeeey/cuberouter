@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type StatusBadgeProps } from '@/components/status-badge'
+import type { StatusBadgeProps } from '@/components/status-badge'
 
 // ============================================================================
 // API Key Status Configuration
@@ -71,6 +71,22 @@ export const API_KEY_STATUS_OPTIONS = Object.values(API_KEY_STATUSES).map(
 // ============================================================================
 
 export const DEFAULT_GROUP = '' as const
+
+// ============================================================================
+// UI Flags
+// ============================================================================
+
+/**
+ * Whether to expose the group picker in the API key drawer.
+ *
+ * Group routing keeps working server-side: with the picker hidden the form
+ * submits its default group, so a new key follows the caller's own group (or
+ * the configured Auto default) exactly as if the picker had been left
+ * untouched. This flag also hides the Auto-only "Auto group order" and
+ * "Cross-group retry" controls, which have no meaning without it. Flip it to
+ * true to offer the picker again.
+ */
+export const SHOW_KEY_GROUP_SELECTOR = false
 
 // ============================================================================
 // Error Messages (i18n keys: use t(ERROR_MESSAGES.xxx) when displaying)
