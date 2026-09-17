@@ -1392,6 +1392,18 @@ func logTaskPluginChannelDecision(c *gin.Context, channel *model.Channel, modelN
 	)
 }
 
+// AllowTaskPluginChannel 标记供应商无关的任务端点（当前是
+// POST /v1/video/generations）：它的请求体就是统一任务体，插件身份可以来自选中
+// 渠道自身的 task_plugin_key，所以允许 Task Plugin（62 类）渠道在没有 pin 的
+// 情况下参与选择（见 service.AppendTaskPluginIdentityFilter）。普通中继路由不带
+// 这个标记，插件渠道依然捡不走它们的流量。
+func AllowTaskPluginChannel() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyTaskPluginChannelAllowed, true)
+		c.Next()
+	}
+}
+
 func PrepareTaskPluginSubmit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pluginKey := strings.TrimSpace(c.Param("key"))

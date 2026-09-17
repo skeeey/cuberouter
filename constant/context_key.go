@@ -40,6 +40,12 @@ const (
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"
 
+	// ContextKeyTaskPluginChannelAllowed 标记"供应商无关的任务端点"：请求体就是
+	// 统一任务体，选中渠道自身的 task_plugin_key 足以确定插件，因此允许 Task
+	// Plugin 渠道在没有 pin 的情况下参与选择（见 service.AppendTaskPluginIdentityFilter）。
+	// 未标记的路由保持"必须先有插件身份"的约束。
+	ContextKeyTaskPluginChannelAllowed ContextKey = "task_plugin_channel_allowed"
+
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"

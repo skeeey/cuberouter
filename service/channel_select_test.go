@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -149,4 +152,48 @@ export function parseSubmitResponse() { return {taskId: "task"}; }
 export function buildQueryRequest() { return {}; }
 export function parseTaskResult() { return {status: "SUCCESS"}; }
 `, key, key, channelType, compatibleType)
+}
+
+// 供应商无关的任务端点（/v1/video/generations 这类统一任务体端点）允许 Task
+// Plugin 渠道按渠道自身设置里的 task_plugin_key 参与选择；其它路由保持"必须先有
+// 插件身份"的约束，插件渠道不会捡走普通中继流量。
+func TestAppendTaskPluginIdentityFilterAllowsVendorNeutralTaskEndpoint(t *testing.T) {
+	setting := `{"task_plugin_key":"kokoni"}`
+	channel := &model.Channel{Id: 1, Type: constant.ChannelTypeTaskPlugin, Setting: &setting}
+
+	newContext := func(t *testing.T, vendorNeutral bool) *gin.Context {
+		t.Helper()
+		c, _ := gin.CreateTestContext(nil)
+		if vendorNeutral {
+			common.SetContextKey(c, constant.ContextKeyTaskPluginChannelAllowed, true)
+		}
+		return c
+	}
+
+	t.Run("marked endpoint admits the channel by its own task plugin key", func(t *testing.T) {
+		c := newContext(t, true)
+		AppendTaskPluginIdentityFilter(c, "")
+		filters := GetChannelConstraints(c).Filters
+		require.Empty(t, filters)
+
+		ok, kind := model.ChannelSatisfiesFilters(channel, "moworld-t2v", filters)
+		require.True(t, ok)
+		assert.Equal(t, dto.ChannelFilterKind(""), kind)
+	})
+
+	t.Run("unmarked route still requires a pinned identity", func(t *testing.T) {
+		c := newContext(t, false)
+		AppendTaskPluginIdentityFilter(c, "")
+		ok, kind := model.ChannelSatisfiesFilters(channel, "moworld-t2v", GetChannelConstraints(c).Filters)
+		assert.False(t, ok)
+		assert.Equal(t, dto.FilterTaskPluginIdentity, kind)
+	})
+
+	t.Run("the marker never overrides a pinned identity", func(t *testing.T) {
+		c := newContext(t, true)
+		AppendTaskPluginIdentityFilter(c, "other-plugin")
+		ok, kind := model.ChannelSatisfiesFilters(channel, "moworld-t2v", GetChannelConstraints(c).Filters)
+		assert.False(t, ok)
+		assert.Equal(t, dto.FilterTaskPluginIdentity, kind)
+	})
 }
