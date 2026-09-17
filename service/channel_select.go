@@ -24,8 +24,19 @@ func GetChannelConstraints(c *gin.Context) *dto.ChannelConstraints {
 	return constraints
 }
 
+// AppendTaskPluginIdentityFilter 追加 task-plugin 身份过滤：Task Plugin（62 类）
+// 渠道只能由已知的插件身份（pin 或 /v1/tasks/:key）选中，避免插件渠道捡走普通
+// 中继流量。
+//
+// 例外是标记为供应商无关的任务端点（constant.ContextKeyTaskPluginChannelAllowed，
+// 例如 /v1/video/generations）：那里的请求体就是统一任务体，插件身份可以来自
+// 选中渠道自身的 task_plugin_key，而选渠道时该值尚不可知，因此未 pin 时不追加
+// 过滤，让 62 类渠道按"模型 + 分组"正常参与选择。
 func AppendTaskPluginIdentityFilter(c *gin.Context, pluginKey string) {
 	if c == nil {
+		return
+	}
+	if pluginKey == "" && common.GetContextKeyBool(c, constant.ContextKeyTaskPluginChannelAllowed) {
 		return
 	}
 	GetChannelConstraints(c).AddFilter(dto.ChannelFilter{

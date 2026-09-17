@@ -16,15 +16,26 @@ func SetVideoRouter(router *gin.Engine) {
 	// 因此这里不再重复注册，避免 gin 启动期 duplicate route panic。
 	videoV1Router := router.Group("/v1")
 	videoV1Router.Use(middleware.RouteTag("relay"))
-	videoV1Router.Use(middleware.TokenAuth(), middleware.Distribute())
+
+	// 提交端点单独一组：AllowTaskPluginChannel 标记"供应商无关的任务端点"，必须排在
+	// Distribute 之前（组中间件先于路由 handler 执行）。该端点请求体是统一任务体，
+	// Task Plugin（62 类）渠道按渠道自身设置的 task_plugin_key 参与选择；其余任务
+	// 端点仍要求已 pin 的插件身份。
+	videoSubmitRouter := videoV1Router.Group("")
+	videoSubmitRouter.Use(middleware.AllowTaskPluginChannel(), middleware.TokenAuth(), middleware.Distribute())
 	{
-		videoV1Router.POST("/video/generations", controller.RelayTask)
-		videoV1Router.GET("/video/generations/:task_id", controller.RelayTaskFetch)
-		videoV1Router.POST("/videos/:video_id/remix", controller.RelayTask)
+		videoSubmitRouter.POST("/video/generations", controller.RelayTask)
+	}
+
+	videoFetchRouter := videoV1Router.Group("")
+	videoFetchRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	{
+		videoFetchRouter.GET("/video/generations/:task_id", controller.RelayTaskFetch)
+		videoFetchRouter.POST("/videos/:video_id/remix", controller.RelayTask)
 		// Ark 风格视频端点（Seedance），仅 doubao/astraflow 渠道开放，渠道类型
 		// 在 RelayTaskSubmit / videoFetchByIDRespBodyBuilder 中校验。
-		videoV1Router.POST("/videos/generations/tasks", controller.RelayTask)
-		videoV1Router.GET("/videos/generations/tasks/:task_id", controller.RelayTaskFetch)
+		videoFetchRouter.POST("/videos/generations/tasks", controller.RelayTask)
+		videoFetchRouter.GET("/videos/generations/tasks/:task_id", controller.RelayTaskFetch)
 	}
 
 	klingV1Router := router.Group("/kling/v1")
