@@ -28,7 +28,7 @@ import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getModelEndpointLabels } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPriceUnitLabelKey,
@@ -125,7 +125,8 @@ export function usePricingColumns(
           return (
             <div className='max-w-full min-w-0'>
               <span className='font-mono text-sm tabular-nums'>
-                {formatVideoPriceMoney(videoPrices.rows[0].normal_price)}/{t('s')}
+                {formatVideoPriceMoney(videoPrices.rows[0].normal_price)}/
+                {t('s')}
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
                 {t('Video per second')}
@@ -414,10 +415,7 @@ export function usePricingColumns(
       accessorKey: 'supported_endpoint_types',
       header: t('Endpoints'),
       cell: ({ row }) => {
-        // 视频按秒模型显示「视频」端点标签(走 OpenAI 兼容视频端点)
-        const endpoints = row.original.video_prices
-          ? [t('Video')]
-          : row.original.supported_endpoint_types || []
+        const endpoints = getModelEndpointLabels(row.original, t)
         return (
           <BadgeListCell
             items={endpoints.map((ep) => (

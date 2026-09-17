@@ -58,7 +58,7 @@ import {
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getModelEndpointLabels } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
   formatTaskUsageUnitPrice,
@@ -514,10 +514,7 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const model = props.model
   const groups = normalizeCatalogItems(model.enable_groups)
-  // 视频按秒模型显示「视频」端点标签(走 OpenAI 兼容视频端点)
-  const endpoints = normalizeCatalogItems(
-    model.video_prices ? [t('Video')] : model.supported_endpoint_types
-  )
+  const endpoints = normalizeCatalogItems(getModelEndpointLabels(model, t))
   const tags = parseTags(model.tags)
   const cells: React.ReactNode[] = []
 
