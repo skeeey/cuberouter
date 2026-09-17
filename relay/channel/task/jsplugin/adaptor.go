@@ -141,7 +141,9 @@ func (a *TaskAdaptor) EstimateBillingValidated(c *gin.Context, info *relaycommon
 	// 视频按秒定价:模型配置了视频价格表时,系数由网关按请求 + 配置推导
 	// (分辨率 × 正常价/错峰价,锚点 = 最高正常价),不走插件的 billing_ratios 钩子。
 	if _, ok := ratio_setting.GetVideoPrice(info.OriginModelName); ok {
-		taskReq, err := relaycommon.GetTaskRequest(c)
+		// pinned 入口（/v1/tasks/:key、原生路由、协议）写入的是原始 JSON 形态，
+		// 结构体断言会失败，这里统一按任务体解码后再推导系数。
+		taskReq, err := relaycommon.GetTaskRequestCoerced(c)
 		if err != nil {
 			// 请求不可解析时不能按锚点价静默预扣,交给调用方的拒绝路径处理
 			return nil, err

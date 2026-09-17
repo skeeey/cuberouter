@@ -1,0 +1,390 @@
+{
+  "cases": [
+    {
+      "name": "t2v submit keeps the flat vendor body",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "model": "moworld-t2v",
+          "upstreamModel": "moworld-t2v",
+          "action": "textGenerate",
+          "requestBody": {
+            "model": "moworld-t2v",
+            "prompt": "一个中国帅气男人走在大街上",
+            "duration": 5,
+            "resolution": "1080*1920"
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "model": "moworld-t2v",
+          "prompt": "一个中国帅气男人走在大街上",
+          "duration": 5,
+          "resolution": "1080P"
+        },
+        "action": "textGenerate"
+      }
+    },
+    {
+      "name": "the gateway request the vendor accepted live maps back to the same flat body",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "model": "moworld-t2v",
+          "upstreamModel": "moworld-t2v",
+          "action": "textGenerate",
+          "requestBody": {
+            "model": "moworld-t2v",
+            "prompt": "一个中国帅气男人走在大街上，街上有很多人和店铺",
+            "duration": 5,
+            "resolution": "1080*1920",
+            "metadata": {
+              "negative_prompt": "模糊，低清晰度，变形，闪烁，字幕，水印",
+              "prompt_extend": true,
+              "watermark": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "negative_prompt": "模糊，低清晰度，变形，闪烁，字幕，水印",
+          "prompt_extend": true,
+          "watermark": false,
+          "model": "moworld-t2v",
+          "prompt": "一个中国帅气男人走在大街上，街上有很多人和店铺",
+          "duration": 5,
+          "resolution": "1080P"
+        },
+        "action": "textGenerate"
+      }
+    },
+    {
+      "name": "metadata vendor params pass through and an OpenAI size normalizes to its tier",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "moworld-t2v",
+          "requestBody": {
+            "model": "moworld-t2v",
+            "prompt": "海边日落",
+            "duration": 5,
+            "size": "1280x720",
+            "metadata": {
+              "negative_prompt": "模糊，低清晰度",
+              "prompt_extend": true,
+              "watermark": false,
+              "ratio": "9:16",
+              "duration": 99,
+              "resolution": "480P"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "negative_prompt": "模糊，低清晰度",
+          "prompt_extend": true,
+          "watermark": false,
+          "ratio": "9:16",
+          "model": "moworld-t2v",
+          "prompt": "海边日落",
+          "duration": 5,
+          "resolution": "720P"
+        }
+      }
+    },
+    {
+      "name": "tier literal is upper-cased and seconds string is accepted",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "moworld-t2v",
+          "requestBody": {
+            "model": "moworld-t2v",
+            "prompt": "海边日落",
+            "resolution": "720p",
+            "seconds": "8"
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "model": "moworld-t2v",
+          "prompt": "海边日落",
+          "duration": 8,
+          "resolution": "720P"
+        }
+      }
+    },
+    {
+      "name": "omitted resolution follows the gateway billing default",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "moworld-t2v",
+          "requestBody": { "model": "moworld-t2v", "prompt": "海边日落", "duration": 5 }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "model": "moworld-t2v",
+          "prompt": "海边日落",
+          "duration": 5,
+          "resolution": "720P"
+        }
+      }
+    },
+    {
+      "name": "i2v image becomes input.img_url",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "moworld-i2v",
+          "requestBody": {
+            "model": "moworld-i2v",
+            "prompt": "镜头缓慢推近",
+            "images": ["https://cdn.example/first.jpg"],
+            "resolution": "1080P"
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://api.kokoniworld.com/v1/video/generations",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test"
+        },
+        "body": {
+          "model": "moworld-i2v",
+          "prompt": "镜头缓慢推近",
+          "duration": 5,
+          "resolution": "1080P",
+          "input": { "img_url": "https://cdn.example/first.jpg" }
+        }
+      }
+    },
+    {
+      "name": "prompt is required",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://api.kokoniworld.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "moworld-t2v",
+          "requestBody": { "model": "moworld-t2v", "prompt": "   " }
+        }
+      ],
+      "expectedError": "prompt is required"
+    },
+    {
+      "name": "submitted task id comes from the flat vendor response",
+      "hook": "parseSubmitResponse",
+      "args": [
+        { "baseUrl": "https://api.kokoniworld.com", "apiKey": "sk-test" },
+        {
+          "statusCode": 200,
+          "headers": {},
+          "body": {
+            "id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+            "task_id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+            "object": "video",
+            "model": "moworld-t2v",
+            "status": "queued",
+            "progress": 0,
+            "created_at": 1789612353
+          }
+        }
+      ],
+      "expected": {
+        "taskId": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+        "taskData": {
+          "id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+          "task_id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+          "object": "video",
+          "model": "moworld-t2v",
+          "status": "queued",
+          "progress": 0,
+          "created_at": 1789612353
+        }
+      }
+    },
+    {
+      "name": "query succeeds with result_url",
+      "hook": "parseTaskResult",
+      "args": [
+        { "taskId": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY", "upstreamModel": "moworld-t2v" },
+        {
+          "code": "success",
+          "message": "",
+          "data": {
+            "task_id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY",
+            "status": "SUCCESS",
+            "fail_reason": "",
+            "progress": "100%",
+            "result_url": "https://example.oss.test/video.mp4?Expires=1",
+            "data": {
+              "usage": { "duration": 5, "output_video_duration": 5 },
+              "output": { "task_status": "SUCCEEDED", "video_url": "https://example.oss.test/video.mp4?Expires=1" }
+            }
+          }
+        },
+        { "status": 200, "headers": {} }
+      ],
+      "expected": {
+        "status": "SUCCESS",
+        "progress": "100%",
+        "url": "https://example.oss.test/video.mp4?Expires=1"
+      }
+    },
+    {
+      "name": "query in progress",
+      "hook": "parseTaskResult",
+      "args": [
+        { "taskId": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY", "upstreamModel": "moworld-t2v" },
+        {
+          "code": "success",
+          "message": "",
+          "data": { "task_id": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY", "status": "IN_PROGRESS", "progress": "30%" }
+        },
+        { "status": 200, "headers": {} }
+      ],
+      "expected": { "status": "IN_PROGRESS", "progress": "30%" }
+    },
+    {
+      "name": "upstream failure carries the reason",
+      "hook": "parseTaskResult",
+      "args": [
+        { "taskId": "task_X6RJPnhplG7TroIb6NnAlgpwj9RoFBzY", "upstreamModel": "moworld-t2v" },
+        { "code": "success", "message": "", "data": { "status": "FAILURE", "fail_reason": "内容审核未通过" } },
+        { "status": 200, "headers": {} }
+      ],
+      "expected": { "status": "FAILURE", "reason": "内容审核未通过" }
+    },
+    {
+      "name": "platform error envelope fails the task instead of polling to the limit",
+      "hook": "parseTaskResult",
+      "args": [
+        { "taskId": "missing", "upstreamModel": "moworld-t2v" },
+        { "code": "task_not_exist", "message": "task_not_exist", "data": null },
+        { "status": 400, "headers": {} }
+      ],
+      "expected": { "status": "FAILURE", "reason": "task_not_exist" }
+    },
+    {
+      "name": "unknown status stays unknown",
+      "hook": "parseTaskResult",
+      "args": [
+        { "taskId": "task-1", "upstreamModel": "moworld-t2v" },
+        { "code": "success", "data": { "status": "PONDERING" } },
+        { "status": 200, "headers": {} }
+      ],
+      "expected": { "status": "UNKNOWN", "reason": "unrecognized task status: PONDERING" }
+    },
+    {
+      "name": "usage facts report seconds and the resolution tier",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "upstreamModel": "moworld-t2v",
+          "usagePurpose": "facts",
+          "requestBody": { "model": "moworld-t2v", "prompt": "p", "duration": 5, "resolution": "1080*1920" }
+        }
+      ],
+      "expected": { "seconds": 5, "resolution": "1080P" }
+    },
+    {
+      "name": "billing ratios belong to the host price table",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "upstreamModel": "moworld-t2v",
+          "usagePurpose": "billing_ratios",
+          "requestBody": { "model": "moworld-t2v", "prompt": "p", "duration": 5, "resolution": "720P" }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "finished task exposes one video artifact",
+      "hook": "listArtifacts",
+      "args": [
+        {
+          "taskId": "task-1",
+          "status": "SUCCESS",
+          "action": "textGenerate",
+          "producerVersion": "1.0.0",
+          "data": { "code": "success", "data": { "status": "SUCCESS", "result_url": "https://example.oss.test/video.mp4" } }
+        }
+      ],
+      "expected": [{ "key": "video", "type": "video" }]
+    },
+    {
+      "name": "artifact content is fetched credentialless from the signed result url",
+      "hook": "buildContentRequest",
+      "args": [
+        {
+          "artifactKey": "video",
+          "upstreamModel": "moworld-t2v",
+          "data": { "code": "success", "data": { "status": "SUCCESS", "result_url": "https://example.oss.test/video.mp4?Expires=1" } },
+          "clientRequest": { "method": "GET", "headers": {} }
+        }
+      ],
+      "expected": {
+        "url": "https://example.oss.test/video.mp4?Expires=1",
+        "method": "GET",
+        "credentialless": true
+      }
+    }
+  ]
+}

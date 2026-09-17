@@ -24,7 +24,8 @@ const (
 // 系数全部来自管理员配置的视频价格表(分辨率表 + 全局错峰窗口):
 //   - seconds:请求时长,缺省 5 秒,一律按 MaxTaskDurationSeconds 饱和
 //     (时长是用户可控的计费乘子,metadata 等旁路可能绕过请求校验)
-//   - size:分辨率相对系数 = 该分辨率正常价 / 锚点(最高正常价行)
+//   - size:分辨率相对系数 = 该分辨率正常价 / 锚点(最高正常价行);
+//     请求值先按字面量匹配表行,匹配不到再按档位归一匹配(1920x1080 → 1080p)
 //   - time:错峰时段内 = 错峰价 / 正常价(按分辨率),窗口来自 GetOffPeakWindow
 //
 // 不在配置表内的模型/分辨率按 1.0 保守计费(不产生 size/time 系数)。
@@ -60,16 +61,30 @@ func ComputeVideoPriceRatios(req relaycommon.TaskSubmitReq, model string, now ti
 		return ratios
 	}
 	var sizeRatio, offPeakRatio float64
-	for _, row := range table.Rows {
+	// 表内没有请求字面量的行时按档位再匹配一次（1920x1080 → 1080p）：尺寸写法的
+	// 请求否则会落到锚点（=最高价）行，把 720p 按 1080p 收费。
+	tierFallback := strings.ToLower(VideoResolutionTier(resolution))
+	matched, fallback := -1, -1
+	for i := range table.Rows {
 		// 配置行分辨率同样 trim + 小写归一,避免 " 720p " 这类值匹配不上请求的 "720p"
-		if strings.ToLower(strings.TrimSpace(row.Resolution)) != resolution {
-			continue
+		rowResolution := strings.ToLower(strings.TrimSpace(table.Rows[i].Resolution))
+		if rowResolution == resolution {
+			matched = i
+			break
 		}
+		if tierFallback != "" && rowResolution == tierFallback {
+			fallback = i
+		}
+	}
+	if matched < 0 {
+		matched = fallback
+	}
+	if matched >= 0 {
+		row := table.Rows[matched]
 		sizeRatio = row.NormalPrice / anchor
 		if ratio_setting.IsOffPeakHour(now, ratio_setting.GetOffPeakWindow()) {
 			offPeakRatio = row.OffPeakPrice / row.NormalPrice
 		}
-		break
 	}
 	if sizeRatio > 0 && sizeRatio != 1.0 {
 		ratios["size"] = sizeRatio
