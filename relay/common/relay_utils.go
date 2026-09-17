@@ -146,6 +146,29 @@ func GetTaskRequest(c *gin.Context) (TaskSubmitReq, error) {
 	return req, nil
 }
 
+// GetTaskRequestCoerced 与 GetTaskRequest 同源，但额外接受 pinned 入口
+// （/v1/tasks/:key、插件原生路由、主机协议）写入的原始 JSON 形态：这些入口由
+// 插件解码阶段直接以 map 存入上下文，结构体断言会失败。需要按统一任务体解读
+// 请求的调用方（视频按秒计费）用它，legacy 任务路由写入的结构体原样返回。
+func GetTaskRequestCoerced(c *gin.Context) (TaskSubmitReq, error) {
+	v, exists := c.Get("task_request")
+	if !exists {
+		return TaskSubmitReq{}, fmt.Errorf("request not found in context")
+	}
+	if req, ok := v.(TaskSubmitReq); ok {
+		return req, nil
+	}
+	data, err := common.Marshal(v)
+	if err != nil {
+		return TaskSubmitReq{}, fmt.Errorf("invalid task request type")
+	}
+	var req TaskSubmitReq
+	if err := common.Unmarshal(data, &req); err != nil {
+		return TaskSubmitReq{}, fmt.Errorf("invalid task request type")
+	}
+	return req, nil
+}
+
 func validatePrompt(prompt string) *dto.TaskError {
 	if strings.TrimSpace(prompt) == "" {
 		return createTaskError(fmt.Errorf("prompt is required"), "invalid_request", http.StatusBadRequest, true)

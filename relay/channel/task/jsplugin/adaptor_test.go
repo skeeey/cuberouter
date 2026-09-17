@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1426,4 +1427,80 @@ export function parseBatchResult(){return [];}
 	assert.Equal(t, []any{"task-a", "task-b"}, captured["ids"])
 	assert.Equal(t, []any{"model-a", "model-b"}, captured["models"])
 	assert.Equal(t, false, captured["hasRequestBody"])
+}
+
+// 插件渠道的 pinned 入口（/v1/tasks/:key、原生路由、主机协议）把请求以原始 JSON
+// 形态写进 task_request，而视频按秒价表的系数推导原先只接受 legacy 路由写入的
+// TaskSubmitReq 结构体，导致"已配置按秒价表的插件渠道"在计费阶段被
+// invalid task request type 拒绝（plugin_usage_invalid）。这里锁定：两种形态都
+// 能推导系数，且档位/size 归一与 Ark 渠道一致。
+func TestTaskAdaptorVideoPriceTableAcceptsPinnedMapRequest(t *testing.T) {
+	const model = "priced-video"
+	source := `
+export const meta = {
+  apiVersion: 1, key: "priced-video", name: "Priced Video", version: "1.0.0",
+  author: {name: "Test"},
+  models: ["priced-video"], fetchMode: "per_task",
+  usageSchema: {seconds: {type: "number", unit: "second"}, resolution: {enum: ["720P", "1080P"]}},
+  usageExamples: [{label: "1080P · 5s", facts: {seconds: 5, resolution: "1080P"}}],
+};
+export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl + "/submit", method: "POST", body: {}}; }
+export function parseSubmitResponse() { return {taskId: "1"}; }
+export function buildQueryRequest() { return {url: "https://provider.example/tasks/1"}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+export function extractUsage() { return null; }
+`
+	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateVideoPriceByJSONString(`{
+	  "priced-video": {"rows": [
+	    {"resolution":"1080p","normal_price":1.0,"off_peak_price":1.0},
+	    {"resolution":"720p","normal_price":0.6,"off_peak_price":0.6}]}
+	}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateVideoPriceByJSONString(`{}`)) })
+
+	estimate := func(t *testing.T, stored any) (map[string]float64, error) {
+		t.Helper()
+		adaptor := New(plugin)
+		info := &relaycommon.RelayInfo{
+			ChannelMeta:     &relaycommon.ChannelMeta{ChannelBaseUrl: "https://provider.example"},
+			TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+			OriginModelName: model,
+		}
+		adaptor.Init(info)
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		context.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/priced-video", nil)
+		context.Set("task_request", stored)
+		return adaptor.EstimateBillingValidated(context, info)
+	}
+
+	t.Run("pinned map request resolves the anchor tier", func(t *testing.T) {
+		ratios, err := estimate(t, map[string]any{"prompt": "p", "duration": float64(5), "resolution": "1080P"})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]float64{"seconds": 5}, ratios)
+	})
+
+	t.Run("size literal normalizes to its tier", func(t *testing.T) {
+		ratios, err := estimate(t, map[string]any{"prompt": "p", "duration": float64(5), "size": "1280x720"})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]float64{"seconds": 5, "size": 0.6}, ratios)
+	})
+
+	t.Run("metadata does not move the pinned billing input", func(t *testing.T) {
+		// 顶层字段决定计费；metadata 只做厂商参数透传，插件对上游的取值口径与此
+		// 一致，两边不会各算一套。这里 metadata 报 1080P/8s，计费仍取缺省 720p/5s。
+		ratios, err := estimate(t, map[string]any{
+			"prompt":   "p",
+			"duration": float64(5),
+			"metadata": map[string]any{"duration": float64(8), "resolution": "1080P"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]float64{"seconds": 5, "size": 0.6}, ratios)
+	})
+
+	t.Run("legacy typed request keeps its behavior", func(t *testing.T) {
+		ratios, err := estimate(t, relaycommon.TaskSubmitReq{Model: model, Prompt: "p", Duration: 5, Resolution: "1080p"})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]float64{"seconds": 5}, ratios)
+	})
 }
