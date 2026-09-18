@@ -55,21 +55,25 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
 ) {
   const { t } = useTranslation()
 
-  if (!props.perf) {
-    return null
-  }
-
-  const { avg_latency_ms, avg_tps, success_rate } = props.perf
+  // 始终渲染三列,无数据时各项均显示占位 dash,
+  // 避免性能汇总接口返回前卡片右下角出现布局跳动。
+  const perf = props.perf
 
   const recentRates =
-    props.perf.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ??
-    []
-  const statusRates =
-    recentRates.length > 0 ? recentRates.slice(-3) : [success_rate]
+    perf?.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ?? []
+  let statusRates: number[] = []
+  if (perf) {
+    statusRates =
+      recentRates.length > 0 ? recentRates.slice(-3) : [perf.success_rate]
+  }
   const statusBars = [
     ...Array(Math.max(0, 3 - statusRates.length)).fill(null),
     ...statusRates,
   ].slice(-3)
+
+  const successRateTitle = perf
+    ? `${t('Success rate')}: ${perf.success_rate.toFixed(1)}%`
+    : t('Success rate')
 
   return (
     <div
@@ -82,8 +86,9 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
         <div className='text-muted-foreground/55 text-[10px] leading-4'>
           {t('Latency short')}
         </div>
+        {/* 占位 dash 与数值、标签同样靠右,三列共用一个对齐契约 */}
         <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactLatency(avg_latency_ms)}
+          {formatCompactLatency(perf?.avg_latency_ms ?? Number.NaN)}
         </div>
       </div>
       <div title={t('Throughput')} className='min-w-0'>
@@ -91,33 +96,45 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
           {t('Throughput short')}
         </div>
         <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactThroughput(avg_tps)}
+          {formatCompactThroughput(perf?.avg_tps ?? Number.NaN)}
         </div>
       </div>
-      <div
-        title={`${t('Success rate')}: ${success_rate.toFixed(1)}%`}
-        className='min-w-0'
-      >
+      <div title={successRateTitle} className='min-w-0'>
         <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
           {t('Status short')}
         </div>
         <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map((rate, index) => (
-            <span
-              key={`${index}-${rate ?? 'empty'}`}
-              className={cn(
-                'w-1 rounded-full',
-                index === 0 && 'h-2',
-                index === 1 && 'h-2.5',
-                index === 2 && 'h-3',
-                rate == null
-                  ? index === 0
+          {perf === undefined && (
+            <span className='text-muted-foreground/80 font-mono text-xs leading-4'>
+              —
+            </span>
+          )}
+          {perf !== undefined &&
+            statusBars.map((rate, index) => {
+              // 三根状态条是固定的左/中/右位置槽,槽位名即其稳定标识
+              const slot = ['left', 'mid', 'right'][index]
+              let barColorClass: string
+              if (rate == null) {
+                barColorClass =
+                  index === 0
                     ? 'bg-muted-foreground/10'
                     : 'bg-muted-foreground/15'
-                  : getSuccessRateDotClass(rate)
-              )}
-            />
-          ))}
+              } else {
+                barColorClass = getSuccessRateDotClass(rate)
+              }
+              return (
+                <span
+                  key={slot}
+                  className={cn(
+                    'w-1 rounded-full',
+                    index === 0 && 'h-2',
+                    index === 1 && 'h-2.5',
+                    index === 2 && 'h-3',
+                    barColorClass
+                  )}
+                />
+              )
+            })}
         </div>
       </div>
     </div>

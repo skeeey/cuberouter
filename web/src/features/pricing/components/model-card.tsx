@@ -24,7 +24,11 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import {
+  DEFAULT_TOKEN_UNIT,
+  getModelEndpointLabels,
+  MAX_CARD_TAGS_DISPLAY,
+} from '../constants'
 import {
   getCardExamplePrice,
   getDynamicDisplayGroupRatio,
@@ -32,13 +36,12 @@ import {
   getDynamicPricingSummary,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
-import { getTaskNumberFields } from '../lib/task-expr'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import { formatVideoPriceMoney, getOffPeakWindowLabel } from '../lib/video-price'
-import type { OffPeakWindow, PricingModel, TokenUnit } from '../types'
-import { ModelBillingModeBadge } from './model-billing-mode-badge'
+import { getTaskNumberFields } from '../lib/task-expr'
+import { formatVideoPriceMoney } from '../lib/video-price'
+import type { PricingModel, TokenUnit } from '../types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
 export interface ModelCardProps {
@@ -50,7 +53,6 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
-  offPeakWindow?: OffPeakWindow
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -61,13 +63,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const usdExchangeRate = props.usdExchangeRate ?? 1
   const showRechargePrice = props.showRechargePrice ?? false
   const isTokenBased = isTokenBasedModel(props.model)
-  const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const tags = parseTags(props.model.tags)
-  const groups = props.model.enable_groups || []
-  // 视频按秒计费的模型走 OpenAI 兼容视频端点,但标签显示「视频」更直观
-  const endpoints = props.model.video_prices
-    ? [t('Video')]
-    : props.model.supported_endpoint_types || []
   const modelIconKey = props.model.icon || props.model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 28) : null
   const initial = props.model.model_name?.charAt(0).toUpperCase() || '?'
@@ -75,7 +71,6 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
   const isUnconfiguredTaskUsage = isUnconfiguredTaskUsageModel(props.model)
-  const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
   const dynamicPriceOptions = {
     tokenUnit,
     showRechargePrice,
@@ -89,19 +84,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, dynamicPriceOptions)
     : null
-  const cardExamplePrice = getCardExamplePrice(
-    props.model,
-    dynamicPriceOptions
-  )
+  const cardExamplePrice = getCardExamplePrice(props.model, dynamicPriceOptions)
   const showTaskFieldLabels =
     getTaskNumberFields(props.model.billing_usage_schema).length > 1
 
-  const primaryGroup = groups[0]
-  const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
-  const hiddenCount =
-    Math.max(groups.length - 1, 0) +
-    Math.max(endpoints.length - 2, 0) +
-    Math.max(tags.length - 2, 0)
+  // 标签与端点各占一行:标签截断到上限,端点全部展开,不再用 +N 折叠
+  const cardTags = tags.slice(0, MAX_CARD_TAGS_DISPLAY)
+  const endpointLabels = getModelEndpointLabels(props.model, t)
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -110,39 +99,27 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
   let priceSummary: ReactNode
   if (props.model.video_prices) {
-    // 卡片左侧价格区很窄(约 180px),三列表格会横向溢出被截断,
-    // 这里按分辨率逐行堆叠:分辨率 + 正常价/错峰价,保持 177px 内可读。
-    const { rows } = props.model.video_prices
-    const windowLabel = getOffPeakWindowLabel(props.offPeakWindow)
+    // 卡片只展示起步价:输入固定为 -,输出取各分辨率正常价的最低值,
+    // 完整分辨率/错峰价格表在详情弹窗展示。
+    const minNormalPrice = Math.min(
+      ...props.model.video_prices.rows.map((row) => row.normal_price)
+    )
     priceSummary = (
-      <div className='mt-2 w-full min-w-0'>
-        <div className='space-y-1'>
-          {rows.map((row) => (
-            <div
-              key={row.resolution || row.normal_price}
-              className='flex items-baseline justify-between gap-x-2 whitespace-nowrap text-xs'
-            >
-              <span className='text-muted-foreground'>{row.resolution}</span>
-              <span className='text-foreground font-mono tabular-nums'>
-                {formatVideoPriceMoney(row.normal_price)}/{t('s')}
-                <span className='text-muted-foreground/70'>
-                  {' '}/ {formatVideoPriceMoney(row.off_peak_price)}/{t('s')}
-                </span>
-              </span>
-            </div>
-          ))}
-        </div>
-        {windowLabel && (
-          <p className='text-muted-foreground/70 mt-1 text-[11px] leading-relaxed'>
-            {t('Off-peak window: {{start}} - {{end}}', {
-              start: windowLabel.start,
-              end: windowLabel.crossesMidnight
-                ? `${t('Next day')} ${windowLabel.end}`
-                : windowLabel.end,
+      <>
+        <span className='text-muted-foreground whitespace-nowrap'>
+          {t('Input')}{' '}
+          <span className='text-foreground font-mono font-semibold'>-</span>
+        </span>
+        <span className='text-muted-foreground whitespace-nowrap'>
+          {t('Output')}{' '}
+          <span className='text-foreground font-mono font-semibold'>
+            {t('From {{price}}', {
+              price: formatVideoPriceMoney(minNormalPrice),
             })}
-          </p>
-        )}
-      </div>
+            /{t('s')}
+          </span>
+        </span>
+      </>
     )
   } else if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
@@ -187,7 +164,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             )
           })}
           {cardExamplePrice && (
-            <span className='text-muted-foreground/70 min-w-0 max-w-full truncate text-xs'>
+            <span className='text-muted-foreground/70 max-w-full min-w-0 truncate text-xs'>
               {cardExamplePrice.label} ≈ {cardExamplePrice.formatted}
             </span>
           )}
@@ -246,22 +223,6 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             )}
           </span>
         </span>
-        {hasCachedPrice && (
-          <span className='text-muted-foreground whitespace-nowrap'>
-            {t('Cached')}{' '}
-            <span className='text-foreground font-mono font-semibold'>
-              {formatPrice(
-                props.model,
-                'cache',
-                tokenUnit,
-                showRechargePrice,
-                priceRate,
-                usdExchangeRate,
-                props.selectedGroup
-              )}
-            </span>
-          </span>
-        )}
       </>
     )
   } else {
@@ -333,34 +294,23 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {props.model.description || t('No description available.')}
       </p>
 
-      {/* Footer: left metadata and right performance summary share row alignment */}
+      {/* Footer: 左列上标签、下端点,右列性能摘要跨这两行 */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
-          {primaryGroup && (
-            <span className='text-muted-foreground text-sm font-medium'>
-              {primaryGroup}
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
+          {cardTags.map((tag) => (
+            <span key={tag} className='text-muted-foreground/70 text-xs'>
+              {tag}
             </span>
-          )}
-          <ModelBillingModeBadge model={props.model} />
+          ))}
         </div>
         <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
 
         <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
-          {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
-              {item}
+          {endpointLabels.map((label) => (
+            <span key={label} className='text-muted-foreground/70 text-xs'>
+              {label}
             </span>
           ))}
-          {!dynamicSummary?.isTaskUsage && !isUnconfiguredTaskUsage && (
-            <span className='text-muted-foreground/50 text-xs'>
-              {tokenUnitLabel}
-            </span>
-          )}
-          {hiddenCount > 0 && (
-            <span className='text-muted-foreground/40 text-xs'>
-              +{hiddenCount}
-            </span>
-          )}
         </div>
       </div>
     </div>

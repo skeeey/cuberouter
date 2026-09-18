@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 
-import type { TokenUnit } from './types'
+import type { PricingModel, TokenUnit } from './types'
 
 // ----------------------------------------------------------------------------
 // Pricing Constants
@@ -141,6 +141,35 @@ export function getEndpointTypeLabels(
 }
 
 /**
+ * Display labels for a model's endpoints, in the order the backend declared
+ * them, without repeats.
+ *
+ * A per-second video model is billed through the OpenAI-compatible video
+ * endpoint whichever style its channel uses, so it reads as one 视频 label
+ * instead of exposing the raw style; a model declaring both raw video styles
+ * still shows that label once. An endpoint type the label map does not know
+ * keeps its raw value, so a type added on the backend still renders something
+ * rather than disappearing from the card.
+ */
+export function getModelEndpointLabels(
+  model: PricingModel,
+  t: TFunction
+): string[] {
+  if (model.video_prices) return [t('Video')]
+  const labels = getEndpointTypeLabels(t)
+  const resolved = (model.supported_endpoint_types ?? []).map((type) => {
+    if (
+      type === ENDPOINT_TYPES.OPENAI_VIDEO ||
+      type === ENDPOINT_TYPES.ARK_VIDEO
+    ) {
+      return labels[ENDPOINT_TYPES.VIDEO]
+    }
+    return labels[type as EndpointFilterValue] ?? type
+  })
+  return [...new Set(resolved)]
+}
+
+/**
  * Whether the filter panel offers the group filter and the pricing-type
  * (per-token / per-request / task) filter.
  *
@@ -163,6 +192,14 @@ export const FILTER_SECTIONS = {
 
 /** Maximum number of tags to display in model row */
 export const MAX_TAGS_DISPLAY = 5
+
+/**
+ * Maximum number of tags to display on a model card.
+ *
+ * The card footer gives tags their own row and the endpoints the next one, so a
+ * long tag list is cut here rather than pushing the endpoints out of view.
+ */
+export const MAX_CARD_TAGS_DISPLAY = 4
 
 /** Maximum number of filter items to display before showing "More..." */
 export const MAX_FILTER_ITEMS = 5

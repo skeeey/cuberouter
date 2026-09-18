@@ -28,7 +28,7 @@ import {
   DEFAULT_PRICING_CARD_PAGE_SIZE,
   DEFAULT_TOKEN_UNIT,
 } from '../constants'
-import type { OffPeakWindow, PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
 
@@ -40,7 +40,6 @@ export interface ModelCardGridProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
-  offPeakWindow?: OffPeakWindow
 }
 
 export function ModelCardGrid(props: ModelCardGridProps) {
@@ -97,7 +96,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
             showRechargePrice={props.showRechargePrice}
             selectedGroup={props.selectedGroup}
             perf={perfMap.get(model.model_name || '')}
-            offPeakWindow={props.offPeakWindow}
             onClick={() => props.onModelClick(model.model_name || '')}
           />
         ))}
