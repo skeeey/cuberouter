@@ -34,9 +34,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
-import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
-import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
@@ -61,25 +59,19 @@ import { cn } from '@/lib/utils'
 import { DEFAULT_TOKEN_UNIT, getModelEndpointLabels } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
-  formatTaskUsageUnitPrice,
-  getDynamicPriceEntries,
   getDynamicPriceUnitLabelKey,
   getDynamicPricingSummary,
-  getDynamicPricingTiers,
   getTaskUsageQuantityUnitLabelKey,
-  isDynamicPricingModel,
   isUnconfiguredTaskUsageModel,
   type DynamicPriceEntry,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
-import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import {
-  evaluateTaskUsageExamples,
-  getTaskEnumFields,
-  getTaskNumberFields,
-} from '../lib/task-expr'
-import { getTaskMatrixDisplayTiers } from '../lib/task-matrix-display'
+  getViewerGroupRatio,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
+import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import { getTaskEnumFields, getTaskNumberFields } from '../lib/task-expr'
 import type {
   ModelCapability,
   OffPeakWindow,
@@ -513,7 +505,6 @@ function ModelBackendSignalsSection(props: { model: PricingModel }) {
 function ModelBackendProviderSection(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const model = props.model
-  const groups = normalizeCatalogItems(model.enable_groups)
   const endpoints = normalizeCatalogItems(getModelEndpointLabels(model, t))
   const tags = parseTags(model.tags)
   const cells: React.ReactNode[] = []
@@ -522,20 +513,6 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
     cells.push(
       <CatalogInfoCell key='provider' label={t('Provider')}>
         <CatalogTextValue>{model.vendor_name}</CatalogTextValue>
-      </CatalogInfoCell>
-    )
-  }
-
-  cells.push(
-    <CatalogInfoCell key='type' label={t('Type')}>
-      <ModelBillingModeBadge model={model} />
-    </CatalogInfoCell>
-  )
-
-  if (groups.length > 0) {
-    cells.push(
-      <CatalogInfoCell key='groups' label={t('Groups')}>
-        <CatalogPillList items={groups} />
       </CatalogInfoCell>
     )
   }
@@ -552,14 +529,6 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
     cells.push(
       <CatalogInfoCell key='tags' label={t('Tags')}>
         <CatalogPillList items={tags} />
-      </CatalogInfoCell>
-    )
-  }
-
-  if (model.parameter_count) {
-    cells.push(
-      <CatalogInfoCell key='parameters' label={t('Parameters')}>
-        <CatalogTextValue>{model.parameter_count}</CatalogTextValue>
       </CatalogInfoCell>
     )
   }
@@ -617,8 +586,6 @@ function ModelHeader(props: { model: PricingModel }) {
         {model.vendor_name && (
           <span className='text-muted-foreground'>{model.vendor_name}</span>
         )}
-        <span className='text-muted-foreground/30'>·</span>
-        <ModelBillingModeBadge model={model} />
       </div>
       {description && (
         <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
@@ -630,7 +597,7 @@ function ModelHeader(props: { model: PricingModel }) {
 }
 
 // ----------------------------------------------------------------------------
-// Base price card (used in the Overview tab)
+// Price detail (used in the Overview tab, under the billing mode badge)
 // ----------------------------------------------------------------------------
 
 function PriceSection(props: {
@@ -640,29 +607,29 @@ function PriceSection(props: {
   tokenUnit: TokenUnit
   showRechargePrice: boolean
   offPeakWindow?: OffPeakWindow
+  /** Billing group ratio of the current viewer (1 = base price). */
+  viewerGroupRatio: number
 }) {
   const { t } = useTranslation()
   if (props.model.video_prices) {
     return (
-      <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
-        <VideoPriceTable
-          table={props.model.video_prices}
-          offPeakWindow={props.offPeakWindow}
-        />
-      </section>
+      <VideoPriceTable
+        table={props.model.video_prices}
+        offPeakWindow={props.offPeakWindow}
+        groupRatioMultiplier={props.viewerGroupRatio}
+      />
     )
   }
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
-  const baseGroupRatioMap = { [baseGroupKey]: 1 }
+  const viewerGroupRatioMap = { [baseGroupKey]: props.viewerGroupRatio }
   const dynamicSummary = getDynamicPricingSummary(props.model, {
     tokenUnit: props.tokenUnit,
     showRechargePrice: props.showRechargePrice,
     priceRate: props.priceRate,
     usdExchangeRate: props.usdExchangeRate,
-    groupRatioMultiplier: 1,
+    groupRatioMultiplier: props.viewerGroupRatio,
   })
 
   const primaryPriceTypes: { label: string; type: PriceType }[] = [
@@ -706,31 +673,27 @@ function PriceSection(props: {
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       return (
-        <section>
-          <SectionTitle>{t('Base Price')}</SectionTitle>
-          <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
-            <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
-              {t('Special billing expression')}
-            </div>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t('Unable to parse structured pricing')}
-            </p>
-            <div className='mt-3'>
-              <div className='text-muted-foreground mb-1 text-[10px] font-medium tracking-wider uppercase'>
-                {t('Raw expression')}
-              </div>
-              <code className='text-muted-foreground bg-background/80 block max-h-28 overflow-auto rounded-md border px-2 py-1.5 font-mono text-xs break-all'>
-                {dynamicSummary.rawExpression}
-              </code>
-            </div>
+        <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
+          <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
+            {t('Special billing expression')}
           </div>
-        </section>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t('Unable to parse structured pricing')}
+          </p>
+          <div className='mt-3'>
+            <div className='text-muted-foreground mb-1 text-[10px] font-medium tracking-wider uppercase'>
+              {t('Raw expression')}
+            </div>
+            <code className='text-muted-foreground bg-background/80 block max-h-28 overflow-auto rounded-md border px-2 py-1.5 font-mono text-xs break-all'>
+              {dynamicSummary.rawExpression}
+            </code>
+          </div>
+        </div>
       )
     }
 
     return (
-      <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
+      <>
         {dynamicSummary.primaryEntries.length > 0 ? (
           <div className='grid grid-cols-2 gap-2'>
             {dynamicSummary.primaryEntries.map((entry) => {
@@ -783,39 +746,31 @@ function PriceSection(props: {
             </div>
           </div>
         )}
-      </section>
+      </>
     )
   }
 
   if (isUnconfiguredTaskUsageModel(props.model)) {
-    return (
-      <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
-        <UnconfiguredTaskPricingNotice model={props.model} />
-      </section>
-    )
+    return <UnconfiguredTaskPricingNotice model={props.model} />
   }
 
   if (!isTokenBased) {
     return (
-      <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
-        <div className='flex items-baseline justify-between'>
-          <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
-          </span>
-          <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
-            {formatFixedPrice(
-              props.model,
-              baseGroupKey,
-              props.showRechargePrice,
-              props.priceRate,
-              props.usdExchangeRate,
-              baseGroupRatioMap
-            )}
-          </span>
-        </div>
-      </section>
+      <div className='flex items-baseline justify-between'>
+        <span className='text-muted-foreground text-sm'>
+          {t('Per request')}
+        </span>
+        <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
+          {formatFixedPrice(
+            props.model,
+            baseGroupKey,
+            props.showRechargePrice,
+            props.priceRate,
+            props.usdExchangeRate,
+            viewerGroupRatioMap
+          )}
+        </span>
+      </div>
     )
   }
 
@@ -830,7 +785,7 @@ function PriceSection(props: {
         props.showRechargePrice,
         props.priceRate,
         props.usdExchangeRate,
-        baseGroupRatioMap
+        viewerGroupRatioMap
       )}
       <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
         / {tokenUnitLabel}
@@ -839,8 +794,7 @@ function PriceSection(props: {
   )
 
   return (
-    <section>
-      <SectionTitle>{t('Base Price')}</SectionTitle>
+    <>
       <div className='grid grid-cols-2 gap-2'>
         {primaryPriceTypes.map((item) => (
           <div key={item.type} className='bg-muted/20 rounded-lg border p-3'>
@@ -870,470 +824,7 @@ function PriceSection(props: {
           </div>
         </div>
       )}
-    </section>
-  )
-}
-
-// ----------------------------------------------------------------------------
-// Auto group chain (used inside group pricing section)
-// ----------------------------------------------------------------------------
-
-function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
-  const { t } = useTranslation()
-  const modelEnableGroups = Array.isArray(props.model.enable_groups)
-    ? props.model.enable_groups
-    : []
-  const autoChain = props.autoGroups.filter((g) =>
-    modelEnableGroups.includes(g)
-  )
-
-  if (autoChain.length === 0) return null
-
-  return (
-    <div className='text-muted-foreground mb-3 flex flex-wrap items-center gap-1 text-xs'>
-      <span className='font-medium'>{t('Auto Group Chain')}</span>
-      <span className='text-muted-foreground/40'>→</span>
-      {autoChain.map((g, idx) => (
-        <span key={g} className='flex items-center gap-1'>
-          <GroupBadge group={g} size='sm' />
-          {idx < autoChain.length - 1 && (
-            <span className='text-muted-foreground/40'>→</span>
-          )}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-type DynamicPriceOptions = Parameters<typeof getDynamicPriceEntries>[1]
-type DynamicPricingTier = ReturnType<typeof getDynamicPricingTiers>[number]
-type DynamicFormattedPricesByTier = Map<DynamicPricingTier, Map<string, string>>
-
-function getDynamicPriceFields(
-  tiers: DynamicPricingTier[],
-  options: DynamicPriceOptions
-) {
-  return [
-    ...new Map(
-      tiers
-        .flatMap((tier) => getDynamicPriceEntries(tier, options))
-        .map((entry) => [entry.field, entry])
-    ).values(),
-  ]
-}
-
-function getDynamicFormattedPricesByTier(
-  tiers: DynamicPricingTier[],
-  options: DynamicPriceOptions
-): DynamicFormattedPricesByTier {
-  return new Map(
-    tiers.map((tier) => [
-      tier,
-      new Map(
-        getDynamicPriceEntries(tier, options).map((entry) => [
-          entry.field,
-          entry.formatted,
-        ])
-      ),
-    ])
-  )
-}
-
-// ----------------------------------------------------------------------------
-// Group pricing table
-// ----------------------------------------------------------------------------
-
-function GroupPricingSection(props: {
-  model: PricingModel
-  groupRatio: Record<string, number>
-  usableGroup: Record<string, { desc: string; ratio: number }>
-  autoGroups: string[]
-  priceRate: number
-  usdExchangeRate: number
-  tokenUnit: TokenUnit
-  showRechargePrice?: boolean
-}) {
-  const { t } = useTranslation()
-  const showRechargePrice = props.showRechargePrice ?? false
-
-  const availableGroups = useMemo(
-    () => getAvailableGroups(props.model, props.usableGroup || {}),
-    [props.model, props.usableGroup]
-  )
-
-  const isTokenBased = isTokenBasedModel(props.model)
-  const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
-
-  const extraPriceTypes = useMemo(() => {
-    const types: { label: string; type: PriceType }[] = []
-    if (props.model.cache_ratio != null) {
-      types.push({ label: t('Cache'), type: 'cache' })
-    }
-    if (props.model.create_cache_ratio != null) {
-      types.push({ label: t('Cache Write'), type: 'create_cache' })
-    }
-    if (props.model.image_ratio != null) {
-      types.push({ label: t('Image'), type: 'image' })
-    }
-    if (props.model.audio_ratio != null) {
-      types.push({ label: t('Audio In'), type: 'audio_input' })
-    }
-    if (
-      props.model.audio_ratio != null &&
-      props.model.audio_completion_ratio != null
-    ) {
-      types.push({ label: t('Audio Out'), type: 'audio_output' })
-    }
-    return types
-  }, [props.model, t])
-
-  if (availableGroups.length === 0) {
-    return (
-      <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'This model is not available in any group, or no group pricing information is configured.'
-          )}
-        </p>
-      </section>
-    )
-  }
-
-  const thClass =
-    'text-muted-foreground py-2 text-[10px] font-medium tracking-wider uppercase'
-
-  if (isDynamicPricingModel(props.model)) {
-    const dynamicTiers =
-      getTaskMatrixDisplayTiers(
-        props.model.billing_expr,
-        props.model.billing_usage_schema
-      ) ?? getDynamicPricingTiers(props.model)
-
-    if (dynamicTiers.length === 0) {
-      return (
-        <section>
-          <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-          <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-          <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
-            <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
-              {t('Special billing expression')}
-            </div>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t(
-                'Group prices cannot be expanded because this expression is not a standard tiered pricing expression.'
-              )}
-            </p>
-            <div className='mt-3'>
-              <div className='text-muted-foreground mb-1 text-[10px] font-medium tracking-wider uppercase'>
-                {t('Raw expression')}
-              </div>
-              <code className='text-muted-foreground bg-background/80 block max-h-28 overflow-auto rounded-md border px-2 py-1.5 font-mono text-xs break-all'>
-                {props.model.billing_expr}
-              </code>
-            </div>
-          </div>
-        </section>
-      )
-    }
-
-    const usageExampleRows = evaluateTaskUsageExamples(
-      props.model.billing_expr,
-      props.model.billing_usage_schema,
-      props.model.billing_usage_examples
-    )
-    const priceFields = getDynamicPriceFields(dynamicTiers, {
-      tokenUnit: props.tokenUnit,
-      showRechargePrice,
-      priceRate: props.priceRate,
-      usdExchangeRate: props.usdExchangeRate,
-      groupRatioMultiplier: 1,
-      usageSchema: props.model.billing_usage_schema,
-    })
-    const formattedPricesByGroup = new Map(
-      availableGroups.map((group) => {
-        const ratio = props.groupRatio[group] || 1
-        return [
-          group,
-          getDynamicFormattedPricesByTier(dynamicTiers, {
-            tokenUnit: props.tokenUnit,
-            showRechargePrice,
-            priceRate: props.priceRate,
-            usdExchangeRate: props.usdExchangeRate,
-            groupRatioMultiplier: ratio,
-            usageSchema: props.model.billing_usage_schema,
-          }),
-        ] as const
-      })
-    )
-
-    return (
-      <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-        <div className='space-y-3'>
-          {availableGroups.map((group) => {
-            const ratio = props.groupRatio[group] || 1
-            const formattedPricesByTier =
-              formattedPricesByGroup.get(group) ??
-              new Map<DynamicPricingTier, Map<string, string>>()
-
-            return (
-              <div key={group} className='overflow-hidden rounded-lg border'>
-                <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
-                  <GroupBadge group={group} size='sm' />
-                  <span className='text-muted-foreground font-mono text-xs'>
-                    {ratio}x
-                  </span>
-                </div>
-                <StaticDataTable
-                  className='rounded-none border-0'
-                  tableClassName='text-sm'
-                  headerRowClassName='hover:bg-transparent'
-                  data={dynamicTiers}
-                  getRowKey={(tier, tierIndex) =>
-                    `${group}-${tier.label || tierIndex}`
-                  }
-                  columns={[
-                    {
-                      id: 'tier',
-                      header: t('Tier'),
-                      className: thClass,
-                      cellClassName: 'text-muted-foreground py-2.5',
-                      cell: (tier) => tier.label || t('Default'),
-                    },
-                    ...priceFields.map((fieldEntry) => {
-                      const unitLabelKey =
-                        getDynamicPriceUnitLabelKey(fieldEntry)
-                      const fieldLabel =
-                        fieldEntry.labelKind === 'schema' ? (
-                          <code className='font-mono'>
-                            {fieldEntry.shortLabel}
-                          </code>
-                        ) : (
-                          t(fieldEntry.shortLabel)
-                        )
-                      return {
-                        id: fieldEntry.field,
-                        header: unitLabelKey ? (
-                          <>
-                            {fieldLabel}
-                            {` / ${t(unitLabelKey)}`}
-                          </>
-                        ) : (
-                          fieldLabel
-                        ),
-                        className: `${thClass} text-right`,
-                        cellClassName: 'py-2.5 text-right font-mono',
-                        cell: (tier: (typeof dynamicTiers)[number]) =>
-                          formattedPricesByTier
-                            .get(tier)
-                            ?.get(fieldEntry.field) ?? '-',
-                      }
-                    }),
-                  ]}
-                />
-                {usageExampleRows.length > 0 ? (
-                  <div className='border-t'>
-                    <div className='text-muted-foreground px-3 pt-2 text-[10px] font-medium tracking-wider uppercase'>
-                      {t('Price examples')}
-                    </div>
-                    <StaticDataTable
-                      className='rounded-none border-0'
-                      tableClassName='text-sm'
-                      headerRowClassName='hover:bg-transparent'
-                      data={usageExampleRows}
-                      getRowKey={(row) => `${group}-${row.label}`}
-                      columns={[
-                        {
-                          id: 'spec',
-                          header: t('Spec'),
-                          className: thClass,
-                          cellClassName: 'text-muted-foreground py-2.5',
-                          cell: (row) => row.label,
-                        },
-                        {
-                          id: 'price',
-                          header: t('Example price'),
-                          className: `${thClass} text-right`,
-                          cellClassName: 'py-2.5 text-right font-mono',
-                          cell: (row) =>
-                            `≈ ${formatTaskUsageUnitPrice(row.total, {
-                              tokenUnit: props.tokenUnit,
-                              showRechargePrice,
-                              priceRate: props.priceRate,
-                              usdExchangeRate: props.usdExchangeRate,
-                              groupRatioMultiplier: ratio,
-                            })}`,
-                        },
-                      ]}
-                    />
-                    <p className='text-muted-foreground/40 px-3 pb-2 text-[10px]'>
-                      {t('Approximate prices for common specs.')}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
-          <p className='text-muted-foreground/40 mt-1.5 text-[10px]'>
-            {dynamicTiers.some((tier) => 'unitPrices' in tier)
-              ? t('Prices shown per usage unit')
-              : `${t('Prices shown per')} ${tokenUnitLabel} tokens`}
-          </p>
-        </div>
-      </section>
-    )
-  }
-
-  if (isUnconfiguredTaskUsageModel(props.model)) {
-    return (
-      <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-        <UnconfiguredTaskPricingNotice model={props.model} />
-      </section>
-    )
-  }
-
-  if (props.model.video_prices) {
-    // 视频按秒计费:分组展示无「输入/输出」价格概念,
-    // 保留分组与倍率,价格列用占位符,避免展示与按秒计费无关的 per-call 数字
-    return (
-      <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-        <StaticDataTable
-          className='-mx-4 rounded-none border-0 sm:mx-0'
-          tableClassName='text-sm'
-          headerRowClassName='hover:bg-transparent'
-          data={availableGroups}
-          getRowKey={(group) => group}
-          columns={[
-            {
-              id: 'group',
-              header: t('Group'),
-              className: thClass,
-              cellClassName: 'py-2.5',
-              cell: (group) => <GroupBadge group={group} size='sm' />,
-            },
-            {
-              id: 'ratio',
-              header: t('Ratio'),
-              className: thClass,
-              cellClassName: 'text-muted-foreground py-2.5 font-mono',
-              cell: (group) => `${props.groupRatio[group] || 1}x`,
-            },
-            {
-              id: 'input',
-              header: t('Input'),
-              className: `${thClass} text-right`,
-              cellClassName: 'py-2.5 text-right font-mono',
-              cell: () => '-',
-            },
-            {
-              id: 'output',
-              header: t('Output'),
-              className: `${thClass} text-right`,
-              cellClassName: 'py-2.5 text-right font-mono',
-              cell: () => '-',
-            },
-          ]}
-        />
-      </section>
-    )
-  }
-
-  const renderGroupPrice = (group: string, type: PriceType) =>
-    formatGroupPrice(
-      props.model,
-      group,
-      type,
-      props.tokenUnit,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
-      props.groupRatio
-    )
-  const renderFixedGroupPrice = (group: string) =>
-    formatFixedPrice(
-      props.model,
-      group,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
-      props.groupRatio
-    )
-
-  return (
-    <section>
-      <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-      <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
-      <StaticDataTable
-        className='-mx-4 rounded-none border-0 sm:mx-0'
-        tableClassName='text-sm'
-        headerRowClassName='hover:bg-transparent'
-        data={availableGroups}
-        getRowKey={(group) => group}
-        columns={[
-          {
-            id: 'group',
-            header: t('Group'),
-            className: thClass,
-            cellClassName: 'py-2.5',
-            cell: (group) => <GroupBadge group={group} size='sm' />,
-          },
-          {
-            id: 'ratio',
-            header: t('Ratio'),
-            className: thClass,
-            cellClassName: 'text-muted-foreground py-2.5 font-mono',
-            cell: (group) => `${props.groupRatio[group] || 1}x`,
-          },
-          ...(isTokenBased
-            ? [
-                {
-                  id: 'input',
-                  header: t('Input'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
-                  cell: (group: string) => renderGroupPrice(group, 'input'),
-                },
-                {
-                  id: 'output',
-                  header: t('Output'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
-                  cell: (group: string) => renderGroupPrice(group, 'output'),
-                },
-                ...extraPriceTypes.map((ep) => ({
-                  id: ep.type,
-                  header: ep.label,
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
-                  cell: (group: string) => renderGroupPrice(group, ep.type),
-                })),
-              ]
-            : [
-                {
-                  id: 'price',
-                  header: t('Price'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
-                  cell: renderFixedGroupPrice,
-                },
-              ]),
-        ]}
-      />
-      <div className='-mx-4 sm:mx-0'>
-        {isTokenBased && (
-          <p className='text-muted-foreground/40 mt-1.5 px-4 text-[10px] sm:px-0'>
-            {t('Prices shown per')} {tokenUnitLabel} tokens
-          </p>
-        )}
-      </div>
-    </section>
+    </>
   )
 }
 
@@ -1370,6 +861,12 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
 
+  const viewerGroupRatio = getViewerGroupRatio(
+    props.model,
+    props.usableGroup,
+    props.groupRatio
+  )
+
   return (
     <div className='@container/details space-y-4'>
       <ModelHeader model={props.model} />
@@ -1396,6 +893,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>
+            <ModelBillingModeBadge model={props.model} />
             <PriceSection
               model={props.model}
               priceRate={props.priceRate}
@@ -1403,6 +901,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
               offPeakWindow={props.offPeakWindow}
+              viewerGroupRatio={viewerGroupRatio}
             />
             {isDynamic && (
               <DynamicPricingBreakdown
@@ -1410,16 +909,6 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
                 usageSchema={props.model.billing_usage_schema}
               />
             )}
-            <GroupPricingSection
-              model={props.model}
-              groupRatio={props.groupRatio}
-              usableGroup={props.usableGroup}
-              autoGroups={props.autoGroups}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
-              tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
           </section>
 
           <ModelBackendDetailsSection model={props.model} />

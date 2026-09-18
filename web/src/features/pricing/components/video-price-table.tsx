@@ -29,6 +29,8 @@ export interface VideoPriceTableProps {
   table: VideoPriceTable
   /** Global off-peak window from the pricing response; note hidden when absent. */
   offPeakWindow?: OffPeakWindow
+  /** Viewer billing group ratio; stored USD/s rates scale by it. */
+  groupRatioMultiplier?: number
   className?: string
   tableClassName?: string
 }
@@ -77,7 +79,10 @@ export function VideoPriceTable(props: VideoPriceTableProps) {
             className: `${headerCellClass} text-right`,
             cellClassName: 'py-2 text-right font-mono tabular-nums',
             cell: (row) =>
-              formatVideoPriceMoney(row.normal_price, { showSymbol: false }),
+              formatVideoPriceMoney(row.normal_price, {
+                showSymbol: false,
+                groupRatioMultiplier: props.groupRatioMultiplier,
+              }),
           },
           {
             id: 'off-peak',
@@ -85,7 +90,10 @@ export function VideoPriceTable(props: VideoPriceTableProps) {
             className: `${headerCellClass} text-right`,
             cellClassName: 'py-2 text-right font-mono tabular-nums',
             cell: (row) =>
-              formatVideoPriceMoney(row.off_peak_price, { showSymbol: false }),
+              formatVideoPriceMoney(row.off_peak_price, {
+                showSymbol: false,
+                groupRatioMultiplier: props.groupRatioMultiplier,
+              }),
           },
         ]}
       />

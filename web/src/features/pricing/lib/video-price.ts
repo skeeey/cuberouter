@@ -62,6 +62,11 @@ export type VideoPriceMoneyOptions = {
    * already carries the symbol and the "/s" unit (numeric-only cell).
    */
   showSymbol?: boolean
+  /**
+   * Billing group ratio multiplier for the current viewer. Stored USD/s rates
+   * are base rates; the charged rate scales by the viewer's billing group.
+   */
+  groupRatioMultiplier?: number
 }
 
 /**
@@ -76,7 +81,8 @@ export function formatVideoPriceMoney(
   if (usdPerSecond == null || !Number.isFinite(usdPerSecond)) {
     return MISSING_VALUE
   }
-  return formatBillingCurrencyFromUSD(usdPerSecond, {
+  const scaled = usdPerSecond * (options?.groupRatioMultiplier ?? 1)
+  return formatBillingCurrencyFromUSD(scaled, {
     ...VIDEO_PRICE_FORMAT_OPTIONS,
     showSymbol: options?.showSymbol ?? true,
   })

@@ -95,6 +95,29 @@ export function getDisplayGroupRatio(
 }
 
 /**
+ * Resolve the billing group ratio for the current viewer.
+ *
+ * The pricing API already folds the logged-in user's per-user-group special
+ * ratios into `groupRatio` and narrows `usableGroup` to what the viewer can
+ * actually be billed under, so the viewer's group is the first entry of
+ * `enable_groups ∩ usable_group` (single-group-per-user deployments make that
+ * intersection exactly one group). Without an intersection (anonymous or no
+ * usable group) we fall back to the best public price, matching the pricing
+ * card behavior.
+ */
+export function getViewerGroupRatio(
+  model: PricingModel,
+  usableGroup: Record<string, { desc: string; ratio: number }>,
+  groupRatio: Record<string, number>
+): number {
+  const viewerGroup = getAvailableGroups(model, usableGroup)[0]
+  if (viewerGroup) {
+    return getConfiguredGroupRatio(groupRatio, viewerGroup)
+  }
+  return getDisplayGroupRatio(model)
+}
+
+/**
  * Replace model placeholder in endpoint path
  */
 export function replaceModelInPath(path: string, modelName: string): string {
