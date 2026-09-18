@@ -266,9 +266,19 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
             latencyValues.length
         )
       : 0
+  const ttftValues = groups
+    .map((group) => group.avg_ttft_ms)
+    .filter((value) => value > 0)
+  const avgTtft =
+    ttftValues.length > 0
+      ? Math.round(
+          ttftValues.reduce((sum, value) => sum + value, 0) /
+            ttftValues.length
+        )
+      : 0
 
   return (
-    <div className='bg-muted/20 grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x'>
+    <div className='bg-muted/20 grid overflow-hidden rounded-lg border sm:grid-cols-2 sm:divide-x lg:grid-cols-4'>
       <OverviewMetric
         icon={Timer}
         label='TPS'
@@ -278,6 +288,11 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
         icon={Timer}
         label={t('Average latency')}
         value={formatLatency(avgLatency)}
+      />
+      <OverviewMetric
+        icon={Timer}
+        label={t('Average TTFT')}
+        value={formatLatency(avgTtft)}
       />
       <OverviewMetric
         icon={HeartPulse}
