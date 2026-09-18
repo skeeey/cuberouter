@@ -95,6 +95,47 @@ export function getDisplayGroupRatio(
 }
 
 /**
+ * Resolve the billing group ratio for the current viewer.
+ *
+ * The pricing API already folds the logged-in user's per-user-group special
+ * ratios into `groupRatio`, so the viewer's price comes from the configured
+ * `groupRatio` map — never from `model.group_ratio`. In the single
+ * group-per-user deployment the `enable_groups ∩ usable_group` intersection is
+ * a single group; if several groups intersect we take the minimum configured
+ * ratio (best price available to the viewer) instead of depending on object
+ * key order. Anonymous viewers (empty intersection) use the minimum over the
+ * model's enabled groups.
+ */
+export function getViewerGroupRatio(
+  model: PricingModel,
+  usableGroup: Record<string, { desc: string; ratio: number }>,
+  groupRatio: Record<string, number>
+): number {
+  const intersection = getAvailableGroups(model, usableGroup)
+  let candidates: string[]
+  if (intersection.length > 0) {
+    candidates = intersection
+  } else if (Array.isArray(model.enable_groups)) {
+    candidates = model.enable_groups
+  } else {
+    candidates = []
+  }
+
+  let minRatio = Number.POSITIVE_INFINITY
+  for (const group of candidates) {
+    const ratio = groupRatio[group]
+    if (
+      typeof ratio === 'number' &&
+      Number.isFinite(ratio) &&
+      ratio < minRatio
+    ) {
+      minRatio = ratio
+    }
+  }
+  return minRatio === Number.POSITIVE_INFINITY ? 1 : minRatio
+}
+
+/**
  * Replace model placeholder in endpoint path
  */
 export function replaceModelInPath(path: string, modelName: string): string {
