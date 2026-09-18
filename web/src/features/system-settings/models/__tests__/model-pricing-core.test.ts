@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { beforeEach, describe, expect, it, test } from 'vitest'
 
+import type { ImagePriceTable } from '@/features/pricing/types'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -77,6 +78,13 @@ const videoTable = {
   ],
 }
 
+const imageTable: ImagePriceTable = {
+  rows: [
+    { tier: 'fast', price: 0.75 },
+    { tier: 'high', price: 1.5 },
+  ],
+}
+
 describe('getInitialPricingMode', () => {
   test('starts in video-per-second mode when the model has a video price table', () => {
     const mode = getInitialPricingMode({
@@ -93,6 +101,23 @@ describe('getInitialPricingMode', () => {
       videoPrices: videoTable,
     })
     expect(mode).toBe('video-per-second')
+  })
+
+  test('starts in image-per-image mode when the model has an image price table', () => {
+    const mode = getInitialPricingMode({
+      ...emptyValues,
+      billingMode: 'image-per-image',
+      imagePrices: imageTable,
+    })
+    expect(mode).toBe('image-per-image')
+  })
+
+  test('starts in image-per-image mode when a table exists without an explicit mode', () => {
+    const mode = getInitialPricingMode({
+      ...emptyValues,
+      imagePrices: imageTable,
+    })
+    expect(mode).toBe('image-per-image')
   })
 
   test('keeps the existing tiered_expr, per-request and per-token detection', () => {
@@ -114,6 +139,19 @@ describe('buildPricingSubmitData', () => {
     expect(data.billingMode).toBe('video-per-second')
     expect(data.videoPrices).toEqual(videoTable)
     expect(data.billingExpr).toBe(undefined)
+  })
+
+  test('image-per-image payload carries the model image price table', () => {
+    const data = buildPricingSubmitData(emptyValues, 'image-per-image', {
+      billingExpr: '',
+      requestRuleExpr: '',
+      imagePrices: imageTable,
+    })
+
+    expect(data.billingMode).toBe('image-per-image')
+    expect(data.imagePrices).toEqual(imageTable)
+    expect(data.billingExpr).toBe(undefined)
+    expect(data.videoPrices).toBe(undefined)
   })
 
   test('tiered_expr payload keeps the expression fields only', () => {
@@ -170,6 +208,45 @@ describe('buildPreviewRows video branch', () => {
       EMPTY_LANE_PRICES,
       EMPTY_LANE_ENABLED,
       (key) => key,
+      { rows: [] }
+    )
+
+    expect(rows[1].value).toBe('Empty')
+  })
+})
+
+describe('buildPreviewRows image branch', () => {
+  test('lists the configured quality tiers for image-per-image mode', () => {
+    const rows = buildPreviewRows(
+      emptyValues,
+      'image-per-image',
+      '',
+      '',
+      '',
+      EMPTY_LANE_PRICES,
+      EMPTY_LANE_ENABLED,
+      (key) => key,
+      undefined,
+      imageTable
+    )
+
+    expect(rows).toEqual([
+      { key: 'mode', label: 'Mode', value: 'Image per image' },
+      { key: 'imageRows', label: 'Quality', value: 'fast, high' },
+    ])
+  })
+
+  test('shows empty state when no rows are configured', () => {
+    const rows = buildPreviewRows(
+      emptyValues,
+      'image-per-image',
+      '',
+      '',
+      '',
+      EMPTY_LANE_PRICES,
+      EMPTY_LANE_ENABLED,
+      (key) => key,
+      undefined,
       { rows: [] }
     )
 

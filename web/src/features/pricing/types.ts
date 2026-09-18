@@ -72,6 +72,8 @@ export type PricingModel = {
   billing_expr?: string
   /** Per-second video price table, present when the model is billed per second */
   video_prices?: VideoPriceTable
+  /** Per-image price table (quality tiers), present when the model is billed per image */
+  image_prices?: ImagePriceTable
   /** Task-plugin usage facts and their billing units. */
   billing_usage_schema?: BillingUsageSchema
   /** Display-only labeled usage vectors for pricing examples. */
@@ -124,6 +126,23 @@ export type VideoPriceTable = {
 
 /** Admin option `VideoPrice`: map of model name -> video price table. */
 export type VideoPrice = Record<string, VideoPriceTable>
+
+/** Fixed quality tiers of a per-image price table (match the image request `quality` field). */
+export type ImagePriceTier = 'fast' | 'standard' | 'high'
+
+/** One quality tier of a per-image price table (USD per image at that tier). */
+export type ImagePriceRow = {
+  tier: ImagePriceTier
+  price: number
+}
+
+/** Per-image price table for a model (backend json field `image_prices`). */
+export type ImagePriceTable = {
+  rows: ImagePriceRow[]
+}
+
+/** Admin option `ImagePrice`: map of model name -> image price table. */
+export type ImagePrice = Record<string, ImagePriceTable>
 
 /** Admin option `OffPeakWindow`: window during which off-peak prices apply. */
 export type OffPeakWindow = {
