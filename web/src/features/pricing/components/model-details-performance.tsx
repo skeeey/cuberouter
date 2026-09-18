@@ -50,7 +50,7 @@ function StatCard(props: {
   return (
     <div className='bg-background flex flex-col gap-1 rounded-lg border p-3'>
       <span className='text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase'>
-        <Icon className='size-3' />
+        <Icon className='size-3' aria-hidden='true' />
         {props.label}
       </span>
       <span

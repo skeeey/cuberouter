@@ -215,7 +215,7 @@ function OverviewMetric(props: {
 
   return (
     <div className='flex min-w-0 items-center gap-2 px-3 py-2'>
-      <Icon className='text-muted-foreground/70 size-3.5 shrink-0' />
+      <Icon className='text-muted-foreground/70 size-3.5 shrink-0' aria-hidden='true' />
       <div className='min-w-0 flex-1'>
         <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
           {props.label}

@@ -81,12 +81,51 @@ describe('ModelDetailsContent pricing by viewer group', () => {
     const model = pricingModel({ enable_groups: ['cheap', 'vip'] })
     renderDetails(model, {
       groupRatio: { cheap: 0.5, vip: 2 },
-      usableGroup: { cheap: { desc: '', ratio: 0.5 }, vip: { desc: '', ratio: 2 } },
+      usableGroup: {},
     })
 
     const expected = formatGroupPrice(model, 'cheap', 'input', 'M', false, 1, 1, {
       cheap: 0.5,
       vip: 2,
+    })
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+
+  test('anonymous fallback ignores model.group_ratio', () => {
+    const model = pricingModel({
+      enable_groups: ['cheap', 'vip'],
+      group_ratio: { cheap: 9, vip: 9 },
+    })
+    renderDetails(model, {
+      groupRatio: { cheap: 0.5, vip: 2 },
+      usableGroup: {},
+    })
+
+    const expected = formatGroupPrice(model, 'cheap', 'input', 'M', false, 1, 1, {
+      cheap: 0.5,
+      vip: 2,
+    })
+    expect(screen.getByText(expected)).toBeInTheDocument()
+    const wrong = formatGroupPrice(model, 'cheap', 'input', 'M', false, 1, 1, {
+      cheap: 9,
+      vip: 9,
+    })
+    expect(screen.queryByText(wrong)).not.toBeInTheDocument()
+  })
+
+  test('viewer with several usable groups gets the minimum ratio regardless of key order', () => {
+    const model = pricingModel({ enable_groups: ['zzz', 'aaa'] })
+    renderDetails(model, {
+      groupRatio: { zzz: 0.5, aaa: 2 },
+      usableGroup: {
+        zzz: { desc: '', ratio: 0.5 },
+        aaa: { desc: '', ratio: 2 },
+      },
+    })
+
+    const expected = formatGroupPrice(model, 'zzz', 'input', 'M', false, 1, 1, {
+      zzz: 0.5,
+      aaa: 2,
     })
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
