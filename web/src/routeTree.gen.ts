@@ -34,6 +34,7 @@ import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
+import { Route as AuthenticatedAdminOrganizationAuditLogsRouteImport } from './routes/_authenticated/admin/organization-audit-logs'
 import { Route as AuthenticatedCampaignsIndexRouteImport } from './routes/_authenticated/campaigns/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -44,6 +45,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedMediaStudioIndexRouteImport } from './routes/_authenticated/media-studio/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
+import { Route as AuthenticatedOrganizationsIndexRouteImport } from './routes/_authenticated/organizations/index'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedPluginsIndexRouteImport } from './routes/_authenticated/plugins/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
@@ -57,8 +59,11 @@ import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
+import { Route as AuthenticatedAdminOrganizationsIndexRouteImport } from './routes/_authenticated/admin/organizations/index'
 import { Route as AuthenticatedOpsCampaignIndexRouteImport } from './routes/_authenticated/ops/campaign/index'
 import { Route as AuthenticatedOpsInviteHistoryIndexRouteImport } from './routes/_authenticated/ops/invite-history/index'
+import { Route as AuthenticatedOrganizationInviteTokenRouteImport } from './routes/_authenticated/organization/invite/$token'
+import { Route as AuthenticatedOrganizationsOrganizationIdSectionRouteImport } from './routes/_authenticated/organizations/$organizationId/$section'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
@@ -73,6 +78,7 @@ import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
+import { Route as AuthenticatedAdminOrganizationsOrganizationIdSectionRouteImport } from './routes/_authenticated/admin/organizations/$organizationId/$section'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -198,6 +204,12 @@ const authUserResetRoute = authUserResetRouteImport.update({
   path: '/user/reset',
   getParentRoute: () => authRouteRoute,
 } as any)
+const AuthenticatedAdminOrganizationAuditLogsRoute =
+  AuthenticatedAdminOrganizationAuditLogsRouteImport.update({
+    id: '/admin/organization-audit-logs',
+    path: '/admin/organization-audit-logs',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedCampaignsIndexRoute =
   AuthenticatedCampaignsIndexRouteImport.update({
     id: '/campaigns/',
@@ -254,6 +266,12 @@ const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
     id: '/models/$section',
     path: '/models/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrganizationsIndexRoute =
+  AuthenticatedOrganizationsIndexRouteImport.update({
+    id: '/organizations/',
+    path: '/organizations/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedPlaygroundIndexRoute =
@@ -332,6 +350,12 @@ const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   path: '/pricing/$modelId/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAdminOrganizationsIndexRoute =
+  AuthenticatedAdminOrganizationsIndexRouteImport.update({
+    id: '/admin/organizations/',
+    path: '/admin/organizations/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedOpsCampaignIndexRoute =
   AuthenticatedOpsCampaignIndexRouteImport.update({
     id: '/ops/campaign/',
@@ -342,6 +366,18 @@ const AuthenticatedOpsInviteHistoryIndexRoute =
   AuthenticatedOpsInviteHistoryIndexRouteImport.update({
     id: '/ops/invite-history/',
     path: '/ops/invite-history/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrganizationInviteTokenRoute =
+  AuthenticatedOrganizationInviteTokenRouteImport.update({
+    id: '/organization/invite/$token',
+    path: '/organization/invite/$token',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrganizationsOrganizationIdSectionRoute =
+  AuthenticatedOrganizationsOrganizationIdSectionRouteImport.update({
+    id: '/organizations/$organizationId/$section',
+    path: '/organizations/$organizationId/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
@@ -428,6 +464,12 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
     path: '/site/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedAdminOrganizationsOrganizationIdSectionRoute =
+  AuthenticatedAdminOrganizationsOrganizationIdSectionRouteImport.update({
+    id: '/admin/organizations/$organizationId/$section',
+    path: '/admin/organizations/$organizationId/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -453,6 +495,7 @@ export interface FileRoutesByFullPath {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/admin/organization-audit-logs': typeof AuthenticatedAdminOrganizationAuditLogsRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -464,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/media-studio/': typeof AuthenticatedMediaStudioIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
+  '/organizations/': typeof AuthenticatedOrganizationsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/plugins/': typeof AuthenticatedPluginsIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
@@ -476,6 +520,8 @@ export interface FileRoutesByFullPath {
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/organization/invite/$token': typeof AuthenticatedOrganizationInviteTokenRoute
+  '/organizations/$organizationId/$section': typeof AuthenticatedOrganizationsOrganizationIdSectionRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -483,6 +529,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/admin/organizations/': typeof AuthenticatedAdminOrganizationsIndexRoute
   '/ops/campaign/': typeof AuthenticatedOpsCampaignIndexRoute
   '/ops/invite-history/': typeof AuthenticatedOpsInviteHistoryIndexRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
@@ -492,6 +539,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/admin/organizations/$organizationId/$section': typeof AuthenticatedAdminOrganizationsOrganizationIdSectionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -516,6 +564,7 @@ export interface FileRoutesByTo {
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/admin/organization-audit-logs': typeof AuthenticatedAdminOrganizationAuditLogsRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -527,6 +576,7 @@ export interface FileRoutesByTo {
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/media-studio': typeof AuthenticatedMediaStudioIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
+  '/organizations': typeof AuthenticatedOrganizationsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/plugins': typeof AuthenticatedPluginsIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
@@ -539,6 +589,8 @@ export interface FileRoutesByTo {
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
+  '/organization/invite/$token': typeof AuthenticatedOrganizationInviteTokenRoute
+  '/organizations/$organizationId/$section': typeof AuthenticatedOrganizationsOrganizationIdSectionRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -546,6 +598,7 @@ export interface FileRoutesByTo {
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/admin/organizations': typeof AuthenticatedAdminOrganizationsIndexRoute
   '/ops/campaign': typeof AuthenticatedOpsCampaignIndexRoute
   '/ops/invite-history': typeof AuthenticatedOpsInviteHistoryIndexRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
@@ -555,6 +608,7 @@ export interface FileRoutesByTo {
   '/system-settings/operations': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/admin/organizations/$organizationId/$section': typeof AuthenticatedAdminOrganizationsOrganizationIdSectionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -583,6 +637,7 @@ export interface FileRoutesById {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
+  '/_authenticated/admin/organization-audit-logs': typeof AuthenticatedAdminOrganizationAuditLogsRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -594,6 +649,7 @@ export interface FileRoutesById {
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/media-studio/': typeof AuthenticatedMediaStudioIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
+  '/_authenticated/organizations/': typeof AuthenticatedOrganizationsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/plugins/': typeof AuthenticatedPluginsIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
@@ -606,6 +662,8 @@ export interface FileRoutesById {
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/_authenticated/organization/invite/$token': typeof AuthenticatedOrganizationInviteTokenRoute
+  '/_authenticated/organizations/$organizationId/$section': typeof AuthenticatedOrganizationsOrganizationIdSectionRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/_authenticated/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -613,6 +671,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/_authenticated/admin/organizations/': typeof AuthenticatedAdminOrganizationsIndexRoute
   '/_authenticated/ops/campaign/': typeof AuthenticatedOpsCampaignIndexRoute
   '/_authenticated/ops/invite-history/': typeof AuthenticatedOpsInviteHistoryIndexRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
@@ -622,6 +681,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/_authenticated/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/_authenticated/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/_authenticated/admin/organizations/$organizationId/$section': typeof AuthenticatedAdminOrganizationsOrganizationIdSectionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -649,6 +709,7 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/user/reset'
+    | '/admin/organization-audit-logs'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -660,6 +721,7 @@ export interface FileRouteTypes {
     | '/keys/'
     | '/media-studio/'
     | '/models/'
+    | '/organizations/'
     | '/playground/'
     | '/plugins/'
     | '/profile/'
@@ -672,6 +734,8 @@ export interface FileRouteTypes {
     | '/users/'
     | '/wallet/'
     | '/pricing/$modelId/'
+    | '/organization/invite/$token'
+    | '/organizations/$organizationId/$section'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -679,6 +743,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/admin/organizations/'
     | '/ops/campaign/'
     | '/ops/invite-history/'
     | '/system-settings/auth/'
@@ -688,6 +753,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/'
     | '/system-settings/security/'
     | '/system-settings/site/'
+    | '/admin/organizations/$organizationId/$section'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -712,6 +778,7 @@ export interface FileRouteTypes {
     | '/rankings'
     | '/setup'
     | '/user/reset'
+    | '/admin/organization-audit-logs'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -723,6 +790,7 @@ export interface FileRouteTypes {
     | '/keys'
     | '/media-studio'
     | '/models'
+    | '/organizations'
     | '/playground'
     | '/plugins'
     | '/profile'
@@ -735,6 +803,8 @@ export interface FileRouteTypes {
     | '/users'
     | '/wallet'
     | '/pricing/$modelId'
+    | '/organization/invite/$token'
+    | '/organizations/$organizationId/$section'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -742,6 +812,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/admin/organizations'
     | '/ops/campaign'
     | '/ops/invite-history'
     | '/system-settings/auth'
@@ -751,6 +822,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations'
     | '/system-settings/security'
     | '/system-settings/site'
+    | '/admin/organizations/$organizationId/$section'
   id:
     | '__root__'
     | '/'
@@ -778,6 +850,7 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/(auth)/user/reset'
+    | '/_authenticated/admin/organization-audit-logs'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
@@ -789,6 +862,7 @@ export interface FileRouteTypes {
     | '/_authenticated/keys/'
     | '/_authenticated/media-studio/'
     | '/_authenticated/models/'
+    | '/_authenticated/organizations/'
     | '/_authenticated/playground/'
     | '/_authenticated/plugins/'
     | '/_authenticated/profile/'
@@ -801,6 +875,8 @@ export interface FileRouteTypes {
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
+    | '/_authenticated/organization/invite/$token'
+    | '/_authenticated/organizations/$organizationId/$section'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
     | '/_authenticated/system-settings/content/$section'
@@ -808,6 +884,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/operations/$section'
     | '/_authenticated/system-settings/security/$section'
     | '/_authenticated/system-settings/site/$section'
+    | '/_authenticated/admin/organizations/'
     | '/_authenticated/ops/campaign/'
     | '/_authenticated/ops/invite-history/'
     | '/_authenticated/system-settings/auth/'
@@ -817,6 +894,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/operations/'
     | '/_authenticated/system-settings/security/'
     | '/_authenticated/system-settings/site/'
+    | '/_authenticated/admin/organizations/$organizationId/$section'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1015,6 +1093,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authUserResetRouteImport
       parentRoute: typeof authRouteRoute
     }
+    '/_authenticated/admin/organization-audit-logs': {
+      id: '/_authenticated/admin/organization-audit-logs'
+      path: '/admin/organization-audit-logs'
+      fullPath: '/admin/organization-audit-logs'
+      preLoaderRoute: typeof AuthenticatedAdminOrganizationAuditLogsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/campaigns/': {
       id: '/_authenticated/campaigns/'
       path: '/campaigns'
@@ -1083,6 +1168,13 @@ declare module '@tanstack/react-router' {
       path: '/models/$section'
       fullPath: '/models/$section'
       preLoaderRoute: typeof AuthenticatedModelsSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/organizations/': {
+      id: '/_authenticated/organizations/'
+      path: '/organizations'
+      fullPath: '/organizations/'
+      preLoaderRoute: typeof AuthenticatedOrganizationsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/playground/': {
@@ -1176,6 +1268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PricingModelIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/admin/organizations/': {
+      id: '/_authenticated/admin/organizations/'
+      path: '/admin/organizations'
+      fullPath: '/admin/organizations/'
+      preLoaderRoute: typeof AuthenticatedAdminOrganizationsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ops/campaign/': {
       id: '/_authenticated/ops/campaign/'
       path: '/ops/campaign'
@@ -1188,6 +1287,20 @@ declare module '@tanstack/react-router' {
       path: '/ops/invite-history'
       fullPath: '/ops/invite-history/'
       preLoaderRoute: typeof AuthenticatedOpsInviteHistoryIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/organization/invite/$token': {
+      id: '/_authenticated/organization/invite/$token'
+      path: '/organization/invite/$token'
+      fullPath: '/organization/invite/$token'
+      preLoaderRoute: typeof AuthenticatedOrganizationInviteTokenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/organizations/$organizationId/$section': {
+      id: '/_authenticated/organizations/$organizationId/$section'
+      path: '/organizations/$organizationId/$section'
+      fullPath: '/organizations/$organizationId/$section'
+      preLoaderRoute: typeof AuthenticatedOrganizationsOrganizationIdSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/system-settings/auth/': {
@@ -1288,6 +1401,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/admin/organizations/$organizationId/$section': {
+      id: '/_authenticated/admin/organizations/$organizationId/$section'
+      path: '/admin/organizations/$organizationId/$section'
+      fullPath: '/admin/organizations/$organizationId/$section'
+      preLoaderRoute: typeof AuthenticatedAdminOrganizationsOrganizationIdSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -1377,6 +1497,7 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedAdminOrganizationAuditLogsRoute: typeof AuthenticatedAdminOrganizationAuditLogsRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -1388,6 +1509,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedMediaStudioIndexRoute: typeof AuthenticatedMediaStudioIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
+  AuthenticatedOrganizationsIndexRoute: typeof AuthenticatedOrganizationsIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedPluginsIndexRoute: typeof AuthenticatedPluginsIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
@@ -1398,14 +1520,20 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
+  AuthenticatedOrganizationInviteTokenRoute: typeof AuthenticatedOrganizationInviteTokenRoute
+  AuthenticatedOrganizationsOrganizationIdSectionRoute: typeof AuthenticatedOrganizationsOrganizationIdSectionRoute
+  AuthenticatedAdminOrganizationsIndexRoute: typeof AuthenticatedAdminOrganizationsIndexRoute
   AuthenticatedOpsCampaignIndexRoute: typeof AuthenticatedOpsCampaignIndexRoute
   AuthenticatedOpsInviteHistoryIndexRoute: typeof AuthenticatedOpsInviteHistoryIndexRoute
+  AuthenticatedAdminOrganizationsOrganizationIdSectionRoute: typeof AuthenticatedAdminOrganizationsOrganizationIdSectionRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedAdminOrganizationAuditLogsRoute:
+    AuthenticatedAdminOrganizationAuditLogsRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
@@ -1417,6 +1545,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedMediaStudioIndexRoute: AuthenticatedMediaStudioIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
+  AuthenticatedOrganizationsIndexRoute: AuthenticatedOrganizationsIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedPluginsIndexRoute: AuthenticatedPluginsIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
@@ -1428,9 +1557,17 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
+  AuthenticatedOrganizationInviteTokenRoute:
+    AuthenticatedOrganizationInviteTokenRoute,
+  AuthenticatedOrganizationsOrganizationIdSectionRoute:
+    AuthenticatedOrganizationsOrganizationIdSectionRoute,
+  AuthenticatedAdminOrganizationsIndexRoute:
+    AuthenticatedAdminOrganizationsIndexRoute,
   AuthenticatedOpsCampaignIndexRoute: AuthenticatedOpsCampaignIndexRoute,
   AuthenticatedOpsInviteHistoryIndexRoute:
     AuthenticatedOpsInviteHistoryIndexRoute,
+  AuthenticatedAdminOrganizationsOrganizationIdSectionRoute:
+    AuthenticatedAdminOrganizationsOrganizationIdSectionRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

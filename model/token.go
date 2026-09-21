@@ -11,24 +11,101 @@ import (
 )
 
 type Token struct {
-	Id                 int            `json:"id"`
-	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
-	Status             int            `json:"status" gorm:"default:1"`
-	Name               string         `json:"name" gorm:"index" `
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool           `json:"unlimited_quota"`
-	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
-	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
-	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	AutoGroups         string         `json:"-" gorm:"type:text"`
-	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Id     int    `json:"id"`
+	UserId int    `json:"user_id" gorm:"index"`
+	Key    string `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	// KeyPreview 是脱敏后的 key，只用于展示，不落库。
+	// 组织 Key 的完整 secret 会按操作者权限返回，前端列表需要同时拿到可展示的掩码。
+	KeyPreview         string  `json:"key_preview,omitempty" gorm:"-"`
+	Status             int     `json:"status" gorm:"default:1"`
+	Name               string  `json:"name" gorm:"index" `
+	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
+	AccessedTime       int64   `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime        int64   `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota        int     `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota     bool    `json:"unlimited_quota"`
+	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
+	ModelLimits        string  `json:"model_limits" gorm:"type:text"`
+	AllowIps           *string `json:"allow_ips" gorm:"default:''"`
+	UsedQuota          int     `json:"used_quota" gorm:"default:0"` // used quota
+	Group              string  `json:"group" gorm:"default:''"`
+	CrossGroupRetry    bool    `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	AutoGroups         string  `json:"-" gorm:"type:text"`
+
+	ScopeType         string `json:"scope_type" gorm:"type:varchar(16);index;index:idx_tokens_org_scope_responsible,priority:1;default:'personal'"`
+	ScopeId           int    `json:"scope_id" gorm:"index;default:0"`
+	Visibility        string `json:"visibility" gorm:"type:varchar(16);index;default:'private'"`
+	OrganizationId    int    `json:"organization_id" gorm:"index;index:idx_tokens_org_scope_responsible,priority:2;default:0"`
+	CreatorUserId     int    `json:"creator_user_id" gorm:"index;default:0"`
+	ResponsibleUserId int    `json:"responsible_user_id" gorm:"index;index:idx_tokens_org_scope_responsible,priority:3;default:0"`
+	TransferReason    string `json:"transfer_reason" gorm:"type:varchar(255);default:''"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"bigint;default:0"`
+
+	// 系统禁用态由组织停用/解散、成员停用等平台侧原因维护，
+	// 与用户主动停用（Status）分开记录，见 service/organization_token_blocker.go。
+	DisabledBySystems    bool   `json:"disabled_by_systems" gorm:"not null;default:false"`
+	SystemDisabledReason string `json:"system_disabled_reason" gorm:"type:varchar(64);default:''"`
+	SystemDisabledRefId  int    `json:"system_disabled_ref_id" gorm:"default:0"`
+	SystemDisabledAt     int64  `json:"system_disabled_at" gorm:"bigint;default:0"`
+	PreviousStatus       int    `json:"previous_status" gorm:"default:0"`
+
+	ResponsibleUsername    string   `json:"responsible_username,omitempty" gorm:"-"`
+	ResponsibleDisplayName string   `json:"responsible_display_name,omitempty" gorm:"-"`
+	ResponsibleEmail       string   `json:"-" gorm:"-"`
+	UnavailableReasons     []string `json:"unavailable_reasons,omitempty" gorm:"-"`
+	// CacheScopeVersion 只存在于 Redis 哈希里，不入库。作用域字段加入缓存之前写入的旧哈希
+	// 读出来是零值，会让组织令牌看上去像个人令牌，因此带版本号的哈希才被接受，见 token_cache.go。
+	CacheScopeVersion int `json:"-" gorm:"-"`
+
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+const (
+	TokenScopePersonal     = "personal"
+	TokenScopeOrganization = "organization"
+	TokenVisibilityPrivate = "private"
+	TokenVisibilityPublic  = "public"
+)
+
+func NormalizeTokenScope(token *Token) {
+	if token == nil {
+		return
+	}
+	if token.ScopeType == "" {
+		token.ScopeType = TokenScopePersonal
+	}
+	if token.ScopeType == TokenScopePersonal {
+		if token.ScopeId == 0 {
+			token.ScopeId = token.UserId
+		}
+		if token.CreatorUserId == 0 {
+			token.CreatorUserId = token.UserId
+		}
+		if token.ResponsibleUserId == 0 {
+			token.ResponsibleUserId = token.UserId
+		}
+		if token.Visibility == "" {
+			token.Visibility = TokenVisibilityPrivate
+		}
+	}
+	if token.ScopeType == TokenScopeOrganization {
+		if token.ScopeId == 0 {
+			token.ScopeId = token.OrganizationId
+		}
+		if token.Visibility == "" {
+			token.Visibility = TokenVisibilityPrivate
+		}
+	}
+}
+
+func normalizeTokenScopes(tokens []*Token) {
+	for _, token := range tokens {
+		NormalizeTokenScope(token)
+	}
+}
+
+func personalTokenScopeQuery(db *gorm.DB) *gorm.DB {
+	return db.Where("(scope_type = ? OR scope_type = '')", TokenScopePersonal)
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
@@ -57,6 +134,20 @@ func (token *Token) SetAutoGroups(groups []string) error {
 
 func (token *Token) Clean() {
 	token.Key = ""
+}
+
+// MaskTokenKeyPreview 生成形如 sk-abcd**********wxyz 的展示用掩码。
+// 与 MaskTokenKey 不同，它保留 sk- 前缀和首尾各 4 位，便于用户核对是哪把 key。
+func MaskTokenKeyPreview(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	rawKey := strings.TrimPrefix(key, "sk-")
+	if len(rawKey) <= 8 {
+		return "sk-" + rawKey
+	}
+	return fmt.Sprintf("sk-%s**********%s", rawKey[:4], rawKey[len(rawKey)-4:])
 }
 
 func MaskTokenKey(key string) string {
@@ -102,10 +193,14 @@ func (token *Token) GetIpLimits() []string {
 	return ipLimits
 }
 
+// GetAllUserTokens 返回用户在「个人」作用域下的令牌。
+// 组织令牌虽然也挂在某个用户名下（责任人），但归属和计费都在组织侧，
+// 由组织令牌接口单独列出；混进个人列表会让用户在下线组织后仍然看到别人的 key。
 func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 	var tokens []*Token
 	var err error
-	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	err = personalTokenScopeQuery(DB.Where("user_id = ?", userId)).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	normalizeTokenScopes(tokens)
 	return tokens, err
 }
 
@@ -153,6 +248,12 @@ func validateLikePattern(input string) error {
 	return nil
 }
 
+// SanitizeLikePattern 是 sanitizeLikePattern 的导出形式，供 model 包外的调用方
+// （组织关键字搜索）复用同一套校验，避免各处自己拼 LIKE 模式而绕过转义。
+func SanitizeLikePattern(input string) (string, error) {
+	return sanitizeLikePattern(input)
+}
+
 const searchHardLimit = 100
 
 func SearchUserTokens(userId int, keyword string, token string, offset int, limit int) (tokens []*Token, total int64, err error) {
@@ -182,7 +283,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		}
 	}
 
-	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
+	baseQuery := personalTokenScopeQuery(DB.Model(&Token{}).Where("user_id = ?", userId))
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -262,7 +363,8 @@ func GetTokenByIds(id int, userId int) (*Token, error) {
 	}
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
-	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
+	err = personalTokenScopeQuery(DB).First(&token, "id = ? and user_id = ?", id, userId).Error
+	NormalizeTokenScope(&token)
 	return &token, err
 }
 
@@ -273,6 +375,7 @@ func GetTokenById(id int) (*Token, error) {
 	token := Token{Id: id}
 	var err error = nil
 	err = DB.First(&token, "id = ?", id).Error
+	NormalizeTokenScope(&token)
 	return &token, err
 }
 
@@ -289,6 +392,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
 		return nil, err
 	}
+	NormalizeTokenScope(token)
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
@@ -312,7 +416,10 @@ func (token *Token) Update() (err error) {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
+		"user_id", "scope_type", "scope_id", "visibility", "organization_id", "creator_user_id",
+		"responsible_user_id", "transfer_reason", "disabled_by_systems", "system_disabled_reason",
+		"system_disabled_ref_id", "system_disabled_at", "previous_status", "updated_at").Updates(token).Error
 }
 
 func (token *Token) SelectUpdate() (err error) {
@@ -366,7 +473,7 @@ func DeleteTokenById(id int, userId int) (err error) {
 		return errors.New("id 或 userId 为空！")
 	}
 	token := Token{Id: id, UserId: userId}
-	err = DB.Where(token).First(&token).Error
+	err = personalTokenScopeQuery(DB.Where(token)).First(&token).Error
 	if err != nil {
 		return err
 	}
@@ -436,7 +543,7 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) {
 	var total int64
-	err := DB.Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
+	err := personalTokenScopeQuery(DB.Model(&Token{}).Where("user_id = ?", userId)).Count(&total).Error
 	return total, err
 }
 
@@ -449,7 +556,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	tx := DB.Begin()
 
 	var tokens []Token
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+	if err := personalTokenScopeQuery(tx.Where("user_id = ? AND id IN (?)", userId, ids)).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}
@@ -457,7 +564,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 		common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())
 	}
 
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
+	if err := personalTokenScopeQuery(tx.Where("user_id = ? AND id IN (?)", userId, ids)).Delete(&Token{}).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  Building2,
   CreditCard,
   FileText,
   FlaskConical,
@@ -31,6 +32,7 @@ import {
   PlugZap,
   Puzzle,
   Radio,
+  ScrollText,
   ServerCog,
   Settings,
   Ticket,
@@ -95,6 +97,11 @@ export function useSidebarData(): SidebarData {
             icon: Key,
           },
           {
+            title: t('Organizations'),
+            url: '/organizations',
+            icon: Building2,
+          },
+          {
             title: t('Usage Logs'),
             url: '/usage-logs/common',
             icon: FileText,
@@ -147,6 +154,22 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            // Named for what it does rather than for what it lists: the
+            // personal organization center is already called "Organizations",
+            // and the two are different pages answering different questions.
+            title: t('Organization Management'),
+            url: '/admin/organizations',
+            icon: Building2,
+          },
+          {
+            // What the organizations did, rather than which ones exist, so it
+            // is its own entry: an administrator looking for one member's
+            // history is not looking at the list.
+            title: t('Organization Audit Log'),
+            url: '/admin/organization-audit-logs',
+            icon: ScrollText,
           },
           {
             title: t('Redemption Codes'),

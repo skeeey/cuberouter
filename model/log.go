@@ -59,8 +59,8 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 type Log struct {
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
 	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
-	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
-	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
+	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type;index:idx_logs_org_billing_type_time,priority:5;index:idx_logs_org_billing_responsible_time,priority:6"`
+	Type              int    `json:"type" gorm:"index:idx_created_at_type;index:idx_logs_org_billing_type_time,priority:4;index:idx_logs_org_billing_responsible_time,priority:4"`
 	Content           string `json:"content"`
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
 	TokenName         string `json:"token_name" gorm:"index;default:''"`
@@ -78,6 +78,79 @@ type Log struct {
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
+
+	ScopeType          string `json:"scope_type" gorm:"type:varchar(16);index;default:'personal'"`
+	ScopeId            int    `json:"scope_id" gorm:"index;default:0"`
+	BillingAccountType string `json:"billing_account_type" gorm:"type:varchar(16);index;index:idx_logs_org_billing_type_time,priority:1;index:idx_logs_org_billing_responsible_time,priority:1;default:'personal'"`
+	BillingAccountId   int    `json:"billing_account_id" gorm:"index;index:idx_logs_org_billing_type_time,priority:2;index:idx_logs_org_billing_responsible_time,priority:2;default:0"`
+	OrganizationId     int    `json:"organization_id" gorm:"index;index:idx_logs_org_billing_type_time,priority:3;index:idx_logs_org_billing_responsible_time,priority:3;default:0"`
+	OrganizationName   string `json:"organization_name" gorm:"type:varchar(128);default:''"`
+	ActorUserId        int    `json:"actor_user_id" gorm:"index;default:0"`
+	CreatorUserId      int    `json:"creator_user_id" gorm:"index;default:0"`
+	CreatorName        string `json:"creator_name" gorm:"type:varchar(128);default:''"`
+	ResponsibleUserId  int    `json:"responsible_user_id" gorm:"index;index:idx_logs_org_billing_responsible_time,priority:5;default:0"`
+	ResponsibleName    string `json:"responsible_name" gorm:"type:varchar(128);default:''"`
+
+	OrganizationBillingSessionId  int    `json:"organization_billing_session_id" gorm:"index;default:0"`
+	OrganizationBillingSessionKey string `json:"organization_billing_session_key" gorm:"type:varchar(191);index;default:''"`
+	// BillingEventKey 是结算/退款的幂等键，唯一索引（logBillingEventKeyIndex）保证同一笔账只落一条日志。
+	// 唯一索引刻意不用 uniqueIndex 标签声明：该标签会让 SQLite 的 AutoMigrate 每次启动都重建整张 logs 表，
+	// 改为在 ensureOrganizationBillingLogIndexes 里显式、幂等地创建。
+	BillingEventKey *string `json:"-" gorm:"type:varchar(191)"`
+
+	ResponsibleUsername    string `json:"responsible_username,omitempty" gorm:"-"`
+	ResponsibleDisplayName string `json:"responsible_display_name,omitempty" gorm:"-"`
+}
+
+// logBillingEventKeyIndex 是 logs.billing_event_key 上的唯一索引名，见 Log.BillingEventKey。
+const logBillingEventKeyIndex = "idx_logs_billing_event_key"
+
+type logBillingEventKeyMigrationColumn struct {
+	BillingEventKey *string `gorm:"type:varchar(191)"`
+}
+
+func (logBillingEventKeyMigrationColumn) TableName() string {
+	return "logs"
+}
+
+func prepareLogBillingEventKeyMigration(db *gorm.DB) error {
+	if db == nil || !db.Migrator().HasTable(&Log{}) || db.Migrator().HasColumn(&Log{}, "BillingEventKey") {
+		return nil
+	}
+	return db.Migrator().AddColumn(&logBillingEventKeyMigrationColumn{}, "BillingEventKey")
+}
+
+func NormalizeLogScope(log *Log) {
+	if log == nil {
+		return
+	}
+	if log.ScopeType == "" {
+		log.ScopeType = AccountContextTypePersonal
+	}
+	if log.ScopeId == 0 && log.ScopeType == AccountContextTypePersonal {
+		log.ScopeId = log.UserId
+	}
+	if log.BillingAccountType == "" {
+		log.BillingAccountType = AccountContextTypePersonal
+	}
+	if log.BillingAccountId == 0 && log.BillingAccountType == AccountContextTypePersonal {
+		log.BillingAccountId = log.UserId
+	}
+	if log.CreatorUserId == 0 && log.ScopeType == AccountContextTypePersonal {
+		log.CreatorUserId = log.UserId
+	}
+	if log.ResponsibleUserId == 0 && log.ScopeType == AccountContextTypePersonal {
+		log.ResponsibleUserId = log.UserId
+	}
+}
+
+// personalLogScopeQuery 把查询收窄到个人作用域的日志。
+//
+// scope_type 为空的老行也算个人：历史日志是在作用域字段存在之前写的，
+// 不把空串一并算上，升级后每个用户的日志列表都会凭空少一截。
+// 组织日志因此天然被排除——个人看板不该出现组织的消费。
+func personalLogScopeQuery(db *gorm.DB) *gorm.DB {
+	return db.Where("(logs.scope_type = ? OR logs.scope_type = '')", AccountContextTypePersonal)
 }
 
 // don't use iota, avoid change log type value
@@ -294,13 +367,19 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
-func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
-	isStream bool, group string, other map[string]interface{}) {
-	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
+// RecordErrorLog 记录一条失败日志。
+//
+// 参数与 RecordConsumeLog 共用 RecordConsumeLogParams，好让作用域/归属字段
+// （ScopeType、OrganizationId、ResponsibleUserId……）在两条路径上走同一套归一化，
+// 否则组织请求的失败日志会落到个人视图里，也正是这个函数存在的意义。
+func RecordErrorLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
+	NormalizeRecordConsumeLogParams(userId, &params)
+	hydrateRecordConsumeLogSnapshots(userId, &params)
+	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, params.ChannelId, params.ModelName, params.TokenName, common.LocalLogPreview(params.Content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	otherStr := common.MapToJsonStr(other)
+	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -313,27 +392,41 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		Username:         username,
 		CreatedAt:        common.GetTimestamp(),
 		Type:             LogTypeError,
-		Content:          content,
+		Content:          params.Content,
 		PromptTokens:     0,
 		CompletionTokens: 0,
-		TokenName:        tokenName,
-		ModelName:        modelName,
+		TokenName:        params.TokenName,
+		ModelName:        params.ModelName,
 		Quota:            0,
-		ChannelId:        channelId,
-		TokenId:          tokenId,
-		UseTime:          useTimeSeconds,
-		IsStream:         isStream,
-		Group:            group,
+		ChannelId:        params.ChannelId,
+		TokenId:          params.TokenId,
+		UseTime:          params.UseTimeSeconds,
+		IsStream:         params.IsStream,
+		Group:            params.Group,
 		Ip: func() string {
 			if needRecordIp {
 				return c.ClientIP()
 			}
 			return ""
 		}(),
-		RequestId:         requestId,
-		UpstreamRequestId: upstreamRequestId,
-		Other:             otherStr,
+		RequestId:                     requestId,
+		UpstreamRequestId:             upstreamRequestId,
+		Other:                         otherStr,
+		ScopeType:                     params.ScopeType,
+		ScopeId:                       params.ScopeId,
+		BillingAccountType:            params.BillingAccountType,
+		BillingAccountId:              params.BillingAccountId,
+		OrganizationId:                params.OrganizationId,
+		OrganizationName:              params.OrganizationName,
+		ActorUserId:                   params.ActorUserId,
+		CreatorUserId:                 params.CreatorUserId,
+		CreatorName:                   params.CreatorName,
+		ResponsibleUserId:             params.ResponsibleUserId,
+		ResponsibleName:               params.ResponsibleName,
+		OrganizationBillingSessionId:  params.OrganizationBillingSessionId,
+		OrganizationBillingSessionKey: params.OrganizationBillingSessionKey,
 	}
+	NormalizeLogScope(log)
 	err := createLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
@@ -353,18 +446,166 @@ type RecordConsumeLogParams struct {
 	IsStream         bool                   `json:"is_stream"`
 	Group            string                 `json:"group"`
 	Other            map[string]interface{} `json:"other"`
+	// 以下作用域/归属字段由 service.RelayConsumeLogParams 从 RelayInfo 上一次性带入。
+	// 个人请求留空即可，NormalizeRecordConsumeLogParams 会补成 personal/调用者自己。
+	ScopeType                     string `json:"scope_type"`
+	ScopeId                       int    `json:"scope_id"`
+	BillingAccountType            string `json:"billing_account_type"`
+	BillingAccountId              int    `json:"billing_account_id"`
+	OrganizationId                int    `json:"organization_id"`
+	OrganizationName              string `json:"organization_name"`
+	ActorUserId                   int    `json:"actor_user_id"`
+	CreatorUserId                 int    `json:"creator_user_id"`
+	CreatorName                   string `json:"creator_name"`
+	ResponsibleUserId             int    `json:"responsible_user_id"`
+	ResponsibleName               string `json:"responsible_name"`
+	OrganizationBillingSessionId  int    `json:"organization_billing_session_id"`
+	OrganizationBillingSessionKey string `json:"organization_billing_session_key"`
+	// BillingEventKey 让同一笔账只落一条日志；非空时唯一索引冲突被当成「已记过」静默跳过。
+	BillingEventKey string `json:"-"`
+	// RequestIdOverride 覆盖上下文里的请求 ID。违规罚金这类附加扣费复用原请求 ID，只靠它区分。
+	RequestIdOverride string `json:"-"`
+}
+
+// NormalizeRecordConsumeLogParams 把缺省的作用域补成个人。
+// 造 params 的地方（尤其是新写的调用点）不必逐个记得填这六个字段。
+func NormalizeRecordConsumeLogParams(userId int, params *RecordConsumeLogParams) {
+	if params == nil {
+		return
+	}
+	if params.ScopeType == "" {
+		params.ScopeType = AccountContextTypePersonal
+	}
+	if params.ScopeId == 0 && params.ScopeType == AccountContextTypePersonal {
+		params.ScopeId = userId
+	}
+	if params.BillingAccountType == "" {
+		params.BillingAccountType = AccountContextTypePersonal
+	}
+	if params.BillingAccountId == 0 && params.BillingAccountType == AccountContextTypePersonal {
+		params.BillingAccountId = userId
+	}
+	if params.CreatorUserId == 0 && params.ScopeType == AccountContextTypePersonal {
+		params.CreatorUserId = userId
+	}
+	if params.ResponsibleUserId == 0 && params.ScopeType == AccountContextTypePersonal {
+		params.ResponsibleUserId = userId
+	}
+}
+
+// hydrateRecordConsumeLogSnapshots 在写日志时把组织名/用户名固化下来。
+// 日志是历史快照：组织改名或成员退组之后，旧日志仍要显示当时的归属，
+// 所以这里存的是字符串而不是外键。
+func hydrateRecordConsumeLogSnapshots(userId int, params *RecordConsumeLogParams) {
+	if params == nil || params.BillingAccountType != AccountContextTypeOrganization || params.OrganizationId == 0 {
+		return
+	}
+	if params.OrganizationName == "" {
+		var organization Organization
+		if err := DB.Select("id", "name").Where("id = ?", params.OrganizationId).First(&organization).Error; err == nil {
+			params.OrganizationName = organization.Name
+		}
+	}
+	userIds := make([]int, 0, 2)
+	seen := map[int]bool{}
+	if params.CreatorUserId > 0 && params.CreatorName == "" {
+		userIds = append(userIds, params.CreatorUserId)
+		seen[params.CreatorUserId] = true
+	}
+	if params.ResponsibleUserId > 0 && params.ResponsibleName == "" && !seen[params.ResponsibleUserId] {
+		userIds = append(userIds, params.ResponsibleUserId)
+	}
+	if len(userIds) == 0 {
+		return
+	}
+	var users []User
+	if err := DB.Select("id", "username", "display_name").Where("id IN ?", userIds).Find(&users).Error; err != nil {
+		return
+	}
+	for _, user := range users {
+		displayName := user.DisplayName
+		if displayName == "" {
+			displayName = user.Username
+		}
+		if user.Id == params.CreatorUserId && params.CreatorName == "" {
+			params.CreatorName = displayName
+		}
+		if user.Id == params.ResponsibleUserId && params.ResponsibleName == "" {
+			params.ResponsibleName = displayName
+		}
+	}
+}
+
+// syncOrganizationBillingRecordUsageFromConsumeLog 把 token 用量补进组织账本。
+//
+// 结算发生在拿到用量之前，账本上那条 settle 记录只知道扣了多少钱。
+// 日志是唯一带 prompt/completion token 数的地方，写日志时顺带回填，
+// 组织的用量明细才不至于只有金额没有 token 数。
+func syncOrganizationBillingRecordUsageFromConsumeLog(params *RecordConsumeLogParams) {
+	if params == nil ||
+		params.BillingAccountType != AccountContextTypeOrganization ||
+		params.OrganizationId == 0 ||
+		params.OrganizationBillingSessionId == 0 {
+		return
+	}
+	updates := map[string]any{
+		"prompt_tokens":     params.PromptTokens,
+		"completion_tokens": params.CompletionTokens,
+		"token_count":       params.PromptTokens + params.CompletionTokens,
+	}
+	if params.TokenId > 0 {
+		updates["token_id"] = params.TokenId
+	}
+	if params.TokenName != "" {
+		updates["token_name"] = params.TokenName
+	}
+	if params.ModelName != "" {
+		updates["model_name"] = params.ModelName
+	}
+	if params.Group != "" {
+		updates["group_name"] = params.Group
+	}
+	if err := DB.Model(&OrganizationBillingRecord{}).
+		Where("organization_id = ? AND session_id = ? AND record_type = ?", params.OrganizationId, params.OrganizationBillingSessionId, OrganizationBillingRecordTypeSettle).
+		UpdateColumns(updates).Error; err != nil {
+		common.SysError("failed to sync organization billing record usage: " + err.Error())
+	}
+}
+
+// createConsumeLog 写一条消费日志。返回值 inserted=false 表示
+// billing_event_key 唯一索引挡住了这次写入——说明同一笔账已经记过，
+// 调用方应当静默跳过而不是当成错误。
+func createConsumeLog(log *Log) (bool, error) {
+	result := LOG_DB.Create(log)
+	if result.Error == nil {
+		return true, nil
+	}
+	if log != nil && log.BillingEventKey != nil && *log.BillingEventKey != "" && IsDuplicateKeyError(LOG_DB, result.Error) {
+		return false, nil
+	}
+	return false, result.Error
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
+	NormalizeRecordConsumeLogParams(userId, &params)
+	hydrateRecordConsumeLogSnapshots(userId, &params)
+	syncOrganizationBillingRecordUsageFromConsumeLog(&params)
 	if !common.LogConsumeEnabled {
 		return
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
+	if params.RequestIdOverride != "" {
+		requestId = params.RequestIdOverride
+	}
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
 	otherStr := common.MapToJsonStr(params.Other)
+	var billingEventKey *string
+	if params.BillingEventKey != "" {
+		billingEventKey = &params.BillingEventKey
+	}
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -394,13 +635,32 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			}
 			return ""
 		}(),
-		RequestId:         requestId,
-		UpstreamRequestId: upstreamRequestId,
-		Other:             otherStr,
+		RequestId:                     requestId,
+		UpstreamRequestId:             upstreamRequestId,
+		Other:                         otherStr,
+		ScopeType:                     params.ScopeType,
+		ScopeId:                       params.ScopeId,
+		BillingAccountType:            params.BillingAccountType,
+		BillingAccountId:              params.BillingAccountId,
+		OrganizationId:                params.OrganizationId,
+		OrganizationName:              params.OrganizationName,
+		ActorUserId:                   params.ActorUserId,
+		CreatorUserId:                 params.CreatorUserId,
+		CreatorName:                   params.CreatorName,
+		ResponsibleUserId:             params.ResponsibleUserId,
+		ResponsibleName:               params.ResponsibleName,
+		OrganizationBillingSessionId:  params.OrganizationBillingSessionId,
+		OrganizationBillingSessionKey: params.OrganizationBillingSessionKey,
+		BillingEventKey:               billingEventKey,
 	}
-	err := createLog(log)
+	NormalizeLogScope(log)
+	inserted, err := createConsumeLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
+		return
+	}
+	if !inserted {
+		return
 	}
 	if common.DataExportEnabled {
 		LogQuotaData(QuotaDataLogParams{
@@ -414,6 +674,13 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
 			NodeName:  common.NodeName,
+
+			ScopeType:          params.ScopeType,
+			ScopeId:            params.ScopeId,
+			BillingAccountType: params.BillingAccountType,
+			BillingAccountId:   params.BillingAccountId,
+			OrganizationId:     params.OrganizationId,
+			ResponsibleUserId:  params.ResponsibleUserId,
 		})
 	}
 }
@@ -429,6 +696,16 @@ type RecordTaskBillingLogParams struct {
 	Group     string
 	Other     map[string]interface{}
 	NodeName  string // 任务发起节点；为空时回退当前节点
+
+	// 作用域与账单归属：任务在提交阶段就把这几列存进了 tasks/midjourneys，
+	// 退款和差额结算发生在轮询阶段，那时只剩任务记录，必须由调用方回填。
+	// 不回填就等于按个人记账——组织开销的退款日志会混进责任人的个人日志列表。
+	ScopeType          string
+	ScopeId            int
+	BillingAccountType string
+	BillingAccountId   int
+	OrganizationId     int
+	ResponsibleUserId  int
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -456,7 +733,17 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		TokenId:   params.TokenId,
 		Group:     params.Group,
 		Other:     common.MapToJsonStr(params.Other),
+
+		ScopeType:          params.ScopeType,
+		ScopeId:            params.ScopeId,
+		BillingAccountType: params.BillingAccountType,
+		BillingAccountId:   params.BillingAccountId,
+		OrganizationId:     params.OrganizationId,
+		ResponsibleUserId:  params.ResponsibleUserId,
 	}
+	// 调用方没回填作用域时退回个人：缺省就是个人，绝不能留空串，
+	// 空串在 personalLogScopeQuery 里虽然也算个人，但会在按作用域分组时变成第三类。
+	NormalizeLogScope(log)
 	err := createLog(log)
 	if err != nil {
 		common.SysLog("failed to record task billing log: " + err.Error())
@@ -476,6 +763,13 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
 			NodeName:  nodeName,
+
+			ScopeType:          params.ScopeType,
+			ScopeId:            params.ScopeId,
+			BillingAccountType: params.BillingAccountType,
+			BillingAccountId:   params.BillingAccountId,
+			OrganizationId:     params.OrganizationId,
+			ResponsibleUserId:  params.ResponsibleUserId,
 		})
 	}
 }
@@ -579,9 +873,9 @@ const logSearchCountLimit = 10000
 func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
-		tx = LOG_DB.Where("logs.user_id = ?", userId)
+		tx = personalLogScopeQuery(LOG_DB.Where("logs.user_id = ?", userId))
 	} else {
-		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
+		tx = personalLogScopeQuery(LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType))
 	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
@@ -630,11 +924,34 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
+// SumUsedQuota 统计全站用量，不带账单归属过滤，管理端看板用。
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, "", 0)
+}
+
+// SumUsedQuotaForBillingAccount 按账单归属统计用量。
+//
+// 个人看板必须带上 (personal, userId)，否则用同一个人作责任人的组织消费会算进他的
+// 个人统计里——花的不是他的钱，却显示在他的额度消耗上。
+func SumUsedQuotaForBillingAccount(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, billingAccountType string, billingAccountId int) (stat Stat, err error) {
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, billingAccountType, billingAccountId)
+}
+
+func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, billingAccountType string, billingAccountId int) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
+
+	// 账单归属过滤只对组织/个人维度生效；空值表示「不过滤」，管理端全站统计走这条。
+	if billingAccountType != "" {
+		tx = tx.Where("billing_account_type = ?", billingAccountType)
+		rpmTpmQuery = rpmTpmQuery.Where("billing_account_type = ?", billingAccountType)
+	}
+	if billingAccountId != 0 {
+		tx = tx.Where("billing_account_id = ?", billingAccountId)
+		rpmTpmQuery = rpmTpmQuery.Where("billing_account_id = ?", billingAccountId)
+	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err

@@ -1,5 +1,34 @@
 package model
 
+import (
+	commonRelay "github.com/QuantumNous/new-api/relay/common"
+)
+
+// ApplyMidjourneyBillingScope 把请求上下文里的作用域与计费归属写进 Midjourney 任务行。
+//
+// 与 Task 一样，这些列是失败退款时唯一能还原「这笔钱扣的是谁」的依据：
+// 退款发生在轮询阶段，那时 gin.Context 早就没了。
+func ApplyMidjourneyBillingScope(task *Midjourney, relayInfo *commonRelay.RelayInfo) {
+	if task == nil || relayInfo == nil {
+		return
+	}
+	task.TokenId = relayInfo.TokenId
+	task.TokenKey = relayInfo.TokenKey
+	task.TokenUnlimited = relayInfo.TokenUnlimited
+	task.RequestId = relayInfo.RequestId
+	task.ScopeType = relayInfo.ScopeType
+	task.ScopeId = relayInfo.ScopeId
+	task.BillingAccountType = relayInfo.BillingAccountType
+	task.BillingAccountId = relayInfo.BillingAccountId
+	task.OrganizationId = relayInfo.OrganizationId
+	task.ActorUserId = relayInfo.ActorUserId
+	task.CreatorUserId = relayInfo.CreatorUserId
+	task.ResponsibleUserId = relayInfo.ResponsibleUserId
+	task.OrganizationBillingSessionId = relayInfo.OrganizationBillingSessionId
+	task.OrganizationBillingSessionKey = relayInfo.OrganizationBillingSessionKey
+	NormalizeMidjourneyBillingScope(task)
+}
+
 type Midjourney struct {
 	Id          int    `json:"id"`
 	Code        int    `json:"code"`
@@ -24,8 +53,69 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int `json:"-" gorm:"default:0"`
-	BillingChannelId int `json:"-" gorm:"default:0"`
+	TokenId          int    `json:"-" gorm:"default:0"`
+	BillingChannelId int    `json:"-" gorm:"default:0"`
+	TokenName        string `json:"token_name" gorm:"index;default:''"`
+	TokenKey         string `json:"-" gorm:"type:varchar(128);default:''"`
+	TokenUnlimited   bool   `json:"token_unlimited" gorm:"default:false"`
+	Group            string `json:"group" gorm:"type:varchar(50);index;default:''"`
+	RequestId        string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_midjourneys_request_id;default:''"`
+
+	ScopeType                     string `json:"scope_type" gorm:"type:varchar(16);index;default:'personal'"`
+	ScopeId                       int    `json:"scope_id" gorm:"index;default:0"`
+	BillingAccountType            string `json:"billing_account_type" gorm:"type:varchar(16);index;default:'personal'"`
+	BillingAccountId              int    `json:"billing_account_id" gorm:"index;default:0"`
+	OrganizationId                int    `json:"organization_id" gorm:"index;default:0"`
+	OrganizationName              string `json:"organization_name" gorm:"type:varchar(128);default:''"`
+	ActorUserId                   int    `json:"actor_user_id" gorm:"index;default:0"`
+	CreatorUserId                 int    `json:"creator_user_id" gorm:"index;default:0"`
+	CreatorName                   string `json:"creator_name" gorm:"type:varchar(128);default:''"`
+	ResponsibleUserId             int    `json:"responsible_user_id" gorm:"index;default:0"`
+	ResponsibleName               string `json:"responsible_name" gorm:"type:varchar(128);default:''"`
+	OrganizationBillingSessionId  int    `json:"organization_billing_session_id" gorm:"index;default:0"`
+	OrganizationBillingSessionKey string `json:"organization_billing_session_key" gorm:"type:varchar(191);index;default:''"`
+}
+
+// NormalizeMidjourneyBillingScope 与 NormalizeTaskBillingScope 同义，
+// 归一未显式设置作用域的 Midjourney 行为个人作用域。
+func NormalizeMidjourneyBillingScope(task *Midjourney) {
+	if task == nil {
+		return
+	}
+	if task.ScopeType == "" {
+		task.ScopeType = AccountContextTypePersonal
+	}
+	if task.BillingAccountType == "" {
+		task.BillingAccountType = AccountContextTypePersonal
+	}
+	if task.ScopeType == AccountContextTypePersonal {
+		if task.ScopeId == 0 {
+			task.ScopeId = task.UserId
+		}
+		if task.BillingAccountId == 0 {
+			task.BillingAccountId = task.UserId
+		}
+		if task.ActorUserId == 0 {
+			task.ActorUserId = task.UserId
+		}
+		if task.CreatorUserId == 0 {
+			task.CreatorUserId = task.UserId
+		}
+		if task.ResponsibleUserId == 0 {
+			task.ResponsibleUserId = task.UserId
+		}
+	}
+	if task.ScopeType == AccountContextTypeOrganization {
+		if task.ScopeId == 0 {
+			task.ScopeId = task.OrganizationId
+		}
+		if task.BillingAccountId == 0 {
+			task.BillingAccountId = task.OrganizationId
+		}
+		if task.OrganizationId == 0 {
+			task.OrganizationId = task.ScopeId
+		}
+	}
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -41,7 +131,7 @@ func GetAllUserTask(userId int, startIdx int, num int, queryParams TaskQueryPara
 	var err error
 
 	// 初始化查询构建器
-	query := DB.Where("user_id = ?", userId)
+	query := applyPersonalAsyncTaskScope(DB).Where("user_id = ?", userId)
 
 	if queryParams.MjID != "" {
 		query = query.Where("mj_id = ?", queryParams.MjID)
@@ -127,20 +217,20 @@ func GetByOnlyMJId(mjId string) *Midjourney {
 	return mj
 }
 
-func GetByMJId(userId int, mjId string) *Midjourney {
+func GetByMJId(scope AsyncTaskScope, mjId string) *Midjourney {
 	var mj *Midjourney
 	var err error
-	err = DB.Where("user_id = ? and mj_id = ?", userId, mjId).First(&mj).Error
+	err = scope.Apply(DB).Where("mj_id = ?", mjId).First(&mj).Error
 	if err != nil {
 		return nil
 	}
 	return mj
 }
 
-func GetByMJIds(userId int, mjIds []string) []*Midjourney {
+func GetByMJIds(scope AsyncTaskScope, mjIds []string) []*Midjourney {
 	var mj []*Midjourney
 	var err error
-	err = DB.Where("user_id = ? and mj_id in (?)", userId, mjIds).Find(&mj).Error
+	err = scope.Apply(DB).Where("mj_id in (?)", mjIds).Find(&mj).Error
 	if err != nil {
 		return nil
 	}
@@ -163,6 +253,7 @@ func UpdateProgress(id int, progress string) error {
 
 func (midjourney *Midjourney) Insert() error {
 	var err error
+	NormalizeMidjourneyBillingScope(midjourney)
 	err = DB.Create(midjourney).Error
 	return err
 }
@@ -234,7 +325,7 @@ func CountAllTasks(queryParams TaskQueryParams) int64 {
 // CountAllUserTask returns total midjourney tasks for user
 func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Midjourney{}).Where("user_id = ?", userId)
+	query := applyPersonalAsyncTaskScope(DB.Model(&Midjourney{})).Where("user_id = ?", userId)
 	if queryParams.MjID != "" {
 		query = query.Where("mj_id = ?", queryParams.MjID)
 	}
