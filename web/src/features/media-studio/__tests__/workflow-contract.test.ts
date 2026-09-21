@@ -1,0 +1,123 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+Copyright (C) 2026 CubeRouter
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { expect, test } from 'vitest'
+
+import catalog from '../catalog.json'
+import {
+  draftSchema,
+  initialDraft,
+  imageRequest,
+  publicCommand,
+  templateDraft,
+} from '../lib/workflow'
+import type { StudioTemplate } from '../workflow-types'
+
+const reference = {
+  id: 'photo',
+  mime: 'image/png',
+  url: 'data:image/png;base64,YQ==',
+}
+test('edit templates preserve references without uploading catalog example images', () => {
+  const template = catalog.templates.find(
+    (item) => item.id === 'pet-comic'
+  ) as StudioTemplate
+  const draft = templateDraft(
+    template,
+    { story: 'The cat makes tea', style: 'Watercolor' },
+    {
+      ...initialDraft,
+      model: 'channel-model',
+      references: [reference],
+      parent_id: 'old',
+    }
+  )
+  expect(draft.references).toEqual([reference])
+  expect(draft.parent_id).toBe('old')
+  expect(draft.prompt).toContain('The cat makes tea')
+  expect(draft.model).toBe('channel-model')
+})
+test('create templates clear edit references and preserve provider-specific size', () => {
+  const template = catalog.templates.find(
+    (item) => item.id === 'chibi-animal'
+  ) as StudioTemplate
+  const draft = templateDraft(
+    template,
+    {},
+    {
+      ...initialDraft,
+      size: '1024x1536',
+      references: [reference],
+      parent_id: 'old',
+    }
+  )
+  expect(draft.references).toEqual([])
+  expect(draft.parent_id).toBeUndefined()
+  expect(draft.size).toBe('1024x1536')
+})
+test('explicit zero seed and CFG are preserved for advanced requests', () => {
+  const draft = draftSchema.parse({
+    ...initialDraft,
+    model: 'image-model',
+    prompt: 'Cat',
+    advanced: true,
+    count: 4,
+    seed: 0,
+    cfg: 0,
+  })
+  expect(imageRequest(draft)).toMatchObject({
+    n: 4,
+    seed: 0,
+    true_cfg_scale: 0,
+  })
+})
+test('generic requests omit Qwen-specific settings until opted in', () => {
+  expect(
+    imageRequest({ ...initialDraft, model: 'image-model', prompt: 'Cat' })
+  ).toEqual({ model: 'image-model', prompt: 'Cat', n: 1, size: '1024x1024' })
+})
+test('counts above four are rejected', () =>
+  expect(
+    draftSchema.safeParse({
+      ...initialDraft,
+      model: 'model',
+      prompt: 'Cat',
+      count: 5,
+    }).success
+  ).toBe(false))
+test('edit requests without references are rejected', () =>
+  expect(
+    draftSchema.safeParse({
+      ...initialDraft,
+      model: 'model',
+      prompt: 'Cat',
+      mode: 'edit',
+    }).success
+  ).toBe(false))
+test('public examples redact reference content and use the standard image edit route', () => {
+  const command = publicCommand({
+    ...initialDraft,
+    mode: 'edit',
+    references: [reference],
+  })
+  expect(command).toContain('/pg/images/edits')
+  expect(command).toContain('<reference image URL>')
+  expect(command).not.toContain('YQ==')
+  expect(command).not.toContain('studio_token')
+})
