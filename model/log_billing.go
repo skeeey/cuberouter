@@ -40,18 +40,18 @@ func localUTCOffsetSeconds() int {
 // 当前部署为 Asia/Shanghai(无 DST),可安全使用。
 const daySeconds = 86400.0
 
-// GetUserBillingAgg 按 (username, 时间区间) 聚合消费日志(type=2),
+// GetUserBillingAgg 按 (user_id, 时间区间) 聚合消费日志(type=2),
 // 返回按 (model_name, 本地自然日) 分组的明细。调用方如需仅按模型汇总,
 // 传 withDaily=false 即只 GROUP BY model_name(DayKey 留 0)。
-func GetUserBillingAgg(username string, startTs, endTs int64, withDaily bool) ([]BillingAggRow, error) {
-	if username == "" {
-		return nil, errors.New("用户名不能为空")
+func GetUserBillingAgg(userId int, startTs, endTs int64, withDaily bool) ([]BillingAggRow, error) {
+	if userId <= 0 {
+		return nil, errors.New("用户 ID 无效")
 	}
 	offset := localUTCOffsetSeconds()
 
 	tx := LOG_DB.Table("logs").
 		Where("type = ?", LogTypeConsume).
-		Where("username = ?", username).
+		Where("user_id = ?", userId).
 		Where("created_at >= ?", startTs).
 		Where("created_at <= ?", endTs)
 
@@ -86,10 +86,12 @@ func GetUserBillingAgg(username string, startTs, endTs int64, withDaily bool) ([
 	return rows, nil
 }
 
-// BillingDayKeyToDate 把本地自然日序号还原为 YYYY-MM-DD(本地时区)。
+// BillingDayKeyToDate 把本地自然日序号还原为 YYYY-MM-DD。
+// dayKey 由 FLOOR((created_at + 本地UTC偏移) / 86400) 得出，即"本地日历"
+// 在 UTC 时间轴上的日序号：dayKey*86400 正好是该日历日的 UTC 00:00，
+// 必须按 UTC 格式化——若转回 time.Local，西半时区会漂到前一天。
 func BillingDayKeyToDate(dayKey int64) string {
-	// dayKey*86400 落在某个 UTC 自然日的 00:00,本地时区下仍属同一日。
-	return time.Unix(dayKey*int64(daySeconds), 0).In(time.Local).Format("2006-01-02")
+	return time.Unix(dayKey*int64(daySeconds), 0).UTC().Format("2006-01-02")
 }
 
 // ReconciliationRow 计费对账报表按用户聚合行。

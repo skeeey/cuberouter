@@ -2560,6 +2560,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
+    "Subscription balance": "Subscription balance",
     "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
@@ -4387,6 +4388,7 @@
     "Remaining quota": "Remaining quota",
     "Remaining Quota ({{currency}})": "Remaining Quota ({{currency}})",
     "Remaining quota units": "Remaining quota units",
+    "Remaining/Total Quota": "Remaining/Total Quota",
     "Remaining:": "Remaining:",
     "Remark": "Remark",
     "Remove": "Remove",
@@ -5032,6 +5034,7 @@
     "Submodel": "Submodel",
     "Subscribe Now": "Subscribe Now",
     "Subscribe to a plan for model access": "Subscribe to a plan for model access",
+    "Subscription Balance": "Subscription Balance",
     "Subscription": "Subscription",
     "Subscription Billing": "Subscription Billing",
     "Subscription First": "Subscription First",
@@ -6069,6 +6072,9 @@
     "Unsupported image URL.": "Unsupported image URL.",
     "Could not download image for local history.": "Could not download image for local history.",
     "Unsupported image download.": "Unsupported image download.",
-    "Choose a reference image.": "Choose a reference image."
+    "Choose a reference image.": "Choose a reference image.",
+    "Native Quota": "Native Quota",
+    "Enter the native quota amount": "Enter the native quota amount",
+    "The native quota amount this API key can consume": "The native quota amount this API key can consume"
   }
 }

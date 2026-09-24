@@ -2560,6 +2560,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
+    "Subscription balance": "訂閱餘額",
     "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
@@ -4387,6 +4388,7 @@
     "Remaining quota": "剩餘配額",
     "Remaining Quota ({{currency}})": "剩餘額度 ({{currency}})",
     "Remaining quota units": "剩餘配額單位",
+    "Remaining/Total Quota": "剩餘額度/總額度",
     "Remaining:": "剩餘：",
     "Remark": "備註",
     "Remove": "移除",
@@ -5032,6 +5034,7 @@
     "Submodel": "Submodel",
     "Subscribe Now": "立即訂閱",
     "Subscribe to a plan for model access": "訂閱套餐以獲取模型存取權限",
+    "Subscription Balance": "訂閱餘額",
     "Subscription": "訂閱",
     "Subscription Billing": "訂閱收費",
     "Subscription First": "優先訂閱",
@@ -6069,6 +6072,9 @@
     "Unsupported image URL.": "不支援此圖片網址。",
     "Could not download image for local history.": "無法下載圖片至本機歷史。",
     "Unsupported image download.": "不支援此圖片下載格式。",
-    "Choose a reference image.": "請選擇參考圖。"
+    "Choose a reference image.": "請選擇參考圖。",
+    "Native Quota": "原生額度",
+    "Enter the native quota amount": "請輸入原生額度",
+    "The native quota amount this API key can consume": "該 API Key 可消耗的原生額度"
   }
 }
