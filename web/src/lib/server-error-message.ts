@@ -73,6 +73,10 @@ const serverErrorMessageKeys = {
     'The mail server rejected the invitation recipient.',
   organization_invite_already_sent:
     'An invitation for this email address is already pending.',
+  organization_join_rule_invalid:
+    'Some lines of the join rules are not usable. Fix the flagged lines and submit again.',
+  organization_join_rule_email_verification_disabled:
+    'Email verification is disabled, so join rules cannot take effect. A platform administrator has to enable it first.',
   organization_token_responsible_member_disabled:
     'The member responsible for this key is disabled.',
   organization_token_responsible_user_disabled:

@@ -49,6 +49,7 @@ const (
 	organizationAuditActionMemberAdd                 = "organization.member.add"
 	organizationAuditActionMemberRemove              = "organization.member.remove"
 	organizationAuditActionMemberExit                = "organization.member.exit"
+	organizationAuditActionMemberAutoJoin            = "organization.member.auto_join"
 	organizationAuditActionMemberKeyTransfer         = "organization.member.key_transfer"
 	organizationAuditActionMemberKeyTransferBlocked  = "organization.member.key_transfer_blocked"
 	organizationAuditActionOwnerTransfer             = "organization.owner.transfer"
@@ -62,6 +63,8 @@ const (
 	organizationAuditActionInviteAccept              = "organization.invite.accept"
 	organizationAuditActionInviteRevoke              = "organization.invite.revoke"
 	organizationAuditActionBillingRepairFailed       = "organization.billing.repair_failed"
+	organizationAuditActionJoinRuleCreate            = "organization.join_rule.create"
+	organizationAuditActionJoinRuleDelete            = "organization.join_rule.delete"
 
 	organizationAuditReasonMemberDemoted = "member_demoted"
 	organizationAuditReasonMemberRemoved = "member_removed"
@@ -271,6 +274,8 @@ func buildOrganizationAuditTargetSnapshot(tx *gorm.DB, targetType string, target
 			}
 		}
 		return auditTargetSnapshotResult(firstAuditString(metadata, "reason"), metadata)
+	case "join_rule":
+		return auditTargetSnapshotResult(firstAuditString(metadata, "pattern_normalized", "pattern"), metadata)
 	}
 	return auditTargetSnapshotResult(firstAuditString(metadata, "name", "target_email", "username", "display_name"), metadata)
 }
