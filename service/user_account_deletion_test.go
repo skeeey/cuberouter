@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 func createDeletionTestOrganization(t *testing.T, status string, ownerUserId int) model.Organization {
@@ -162,36 +161,11 @@ func TestDeleteUserAccountRefusalIsAudited(t *testing.T) {
 // 收口的锁序必须是 users → organizations → organization_members：注册路径是
 // user → member（InsertWithTx 落库后插成员行），管理员加人同样先读 users 再写成员行，
 // 收口若反过来先把成员行/组织行握在手里再碰 users，就会与它们形成反向锁序（spec §9）。
-// SQLite 不下发 FOR UPDATE（单写者模型），因此锁断言在该方言上自动跳过。
+// SQLite 不下发 FOR UPDATE（单写者模型），因此锁断言在该方言上自动跳过，真正的
+// 锁序断言由 user_account_deletion_concurrency_test.go 的 PostgreSQL 变体承担。
 func TestDeleteUserAccountLocksUserRowBeforeOrganization(t *testing.T) {
 	setupServiceTestDB(t)
-	operator := createServiceTestUser(t, "del-op-"+common.GetUUID(), common.RoleRootUser)
-	owner := createServiceTestUser(t, "del-owner-"+common.GetUUID(), common.RoleCommonUser)
-	target := createServiceTestUser(t, "del-target-"+common.GetUUID(), common.RoleCommonUser)
-	organization := createDeletionTestOrganization(t, model.OrganizationStatusActive, owner.Id)
-	addDeletionTestMember(t, organization.Id, target.Id, model.OrganizationRoleMember, model.OrganizationMemberStatusActive)
-
-	var lockOrder []string
-	callbackName := "test:account-deletion-lock-order"
-	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		switch tx.Statement.Table {
-		case "users", "organizations", "organization_members":
-		default:
-			return
-		}
-		locking, ok := tx.Statement.Clauses["FOR"].Expression.(clause.Locking)
-		if !ok || locking.Strength != "UPDATE" {
-			return
-		}
-		lockOrder = append(lockOrder, tx.Statement.Table)
-	}))
-	t.Cleanup(func() {
-		_ = model.DB.Callback().Query().Remove(callbackName)
-	})
-
-	require.NoError(t, DeleteUserAccount(operator.Id, target.Id))
-
-	requireOrganizationRowLockOrder(t, lockOrder, []string{"users", "organizations", "organization_members"})
+	runDeleteUserAccountLockOrder(t, model.DB)
 }
 
 // 成员行 created_at 早于账号时，访问路径必须照旧放行：多节点部署下管理员跨节点加人
