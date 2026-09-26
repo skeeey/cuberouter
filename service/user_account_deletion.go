@@ -29,11 +29,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// accountMembershipPurgeResult 是一次账号收口的结果：被拒绝的组织 id（0 表示全部收口）
-// 与真正收口的成员行数（成员行按 organization_id + user_id 唯一，因此它也是被收口的组织数）。
+// accountMembershipPurgeResult 是一次账号收口的结果：收口失败的组织 id（0 表示没有
+// 组织走到失败分支）与真正收口的成员行数（成员行按 organization_id + user_id 唯一，
+// 因此它也是被收口的组织数）。
+//
+// FailedOrganizationId 只记「哪个组织让这次收口失败了」，不记失败性质：blocker 拒绝
+// 与判定/写审计本身报错都会落在它上面。
 type accountMembershipPurgeResult struct {
-	BlockedOrganizationId int
-	PurgedMemberships     int
+	FailedOrganizationId int
+	PurgedMemberships    int
 }
 
 // DeleteUserAccount 硬删除一个账号，并在同一事务内收口其组织成员关系。
@@ -64,11 +68,11 @@ func DeleteUserAccount(operatorUserId, targetUserId int, auditMetadata ...Organi
 		return err
 	})
 	if err != nil {
-		if purgeResult.BlockedOrganizationId > 0 {
+		if purgeResult.FailedOrganizationId > 0 {
 			// 事务已经回滚，这条留痕只能写在它自己的事务里。组织需要知道有人试图删除
 			// 一个还挂着它 owner / key 的账号，以及被什么挡住（动作常量与组织子系统
 			// 记"成员操作被 blocker 拦下"用的是同一条，便于一处检索）。
-			if auditErr := recordOrganizationMemberKeyTransferBlockedAudit(purgeResult.BlockedOrganizationId, operatorUserId, organizationAuditOperatorRoleSystem, targetUserId, 0, "account deletion blocked", err, auditMetadata...); auditErr != nil {
+			if auditErr := recordOrganizationMemberKeyTransferBlockedAudit(purgeResult.FailedOrganizationId, operatorUserId, organizationAuditOperatorRoleSystem, targetUserId, 0, "account deletion blocked", err, auditMetadata...); auditErr != nil {
 				common.SysError("failed to record organization blocked audit for account deletion: " + auditErr.Error())
 			}
 		}
@@ -112,7 +116,7 @@ func purgeAccountOrganizationMembershipsWithTx(tx *gorm.DB, targetUserId, operat
 			return result, err
 		}
 		if err := ensureAccountMayLeaveOrganizationWithTx(tx, organization, targetUserId); err != nil {
-			result.BlockedOrganizationId = organizationId
+			result.FailedOrganizationId = organizationId
 			return result, err
 		}
 		// 审计先写：recordOrganizationAudit 会按 target 补快照，此时成员行必须还在。

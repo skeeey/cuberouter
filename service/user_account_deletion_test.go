@@ -298,15 +298,15 @@ func TestDeleteUserAccountIsAtomicAcrossOrganizations(t *testing.T) {
 	assert.Equal(t, int64(1), userCount)
 }
 
-// 收口时一并解除该成员的 blocker 行，否则这些 key 会带着"因某已不存在成员被禁用"
-// 的理由永久卡住。
-func TestDeleteUserAccountClearsMemberTokenBlockers(t *testing.T) {
+// 拒绝路径不得解除该成员的 blocker 行：成员还持着组织 key，收口被整请求拒绝，
+// 账号、成员行与 blocker 原样留库，由组织先移交 key 再删。
+func TestDeleteUserAccountRefusalKeepsMemberTokenBlockers(t *testing.T) {
 	setupServiceTestDB(t)
 	operator := createServiceTestUser(t, "del-op-"+common.GetUUID(), common.RoleRootUser)
 	owner := createServiceTestUser(t, "del-owner-"+common.GetUUID(), common.RoleCommonUser)
 	target := createServiceTestUser(t, "del-target-"+common.GetUUID(), common.RoleCommonUser)
 	organization := createDeletionTestOrganization(t, model.OrganizationStatusActive, owner.Id)
-	addDeletionTestMember(t, organization.Id, target.Id, model.OrganizationMemberStatusDisabled, model.OrganizationMemberStatusDisabled)
+	addDeletionTestMember(t, organization.Id, target.Id, model.OrganizationRoleMember, model.OrganizationMemberStatusDisabled)
 
 	token := model.Token{
 		UserId: target.Id, OrganizationId: organization.Id, ScopeType: model.TokenScopeOrganization,

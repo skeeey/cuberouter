@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 package service
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -186,14 +187,20 @@ func requireNoAccountDeletionRaceLockError(t *testing.T, errs ...error) {
 // busy_timeout 不介入），这是夹具形态决定的，与锁序无关（SQLite 不发 FOR UPDATE）。
 // 于是这里只要求：失败必须是写锁竞争，不能是表不存在、约束冲突、SQL 语法这类
 // 真正说明环境或代码坏掉的错误。
-func requireAccountDeletionRaceFailureIsWriteContention(t *testing.T, errs ...error) {
+//
+// 收口侧不接受 gorm.ErrRecordNotFound：这个用例里只有收口会删账号，它自己读不到
+// users 行说明收口本身坏了。成员移除侧接受它——收口先赢时成员行已随账号一起消失，
+// 而 RemoveOrganizationMember 直接对成员行 First、不先判存在，于是它读到的就是
+// 「没有这一行」。这是合法结果，文件库与 PostgreSQL 变体接受同一个结果。
+func requireAccountDeletionRaceFailureIsWriteContention(t *testing.T, deleteErr, removeErr error) {
 	t.Helper()
-	for _, err := range errs {
-		if err == nil {
-			continue
-		}
-		assert.Contains(t, strings.ToLower(err.Error()), "locked",
-			"内存夹具上只接受写锁竞争失败，其余错误必须暴露出来")
+	if deleteErr != nil {
+		assert.Contains(t, strings.ToLower(deleteErr.Error()), "locked",
+			"收口只接受写锁竞争失败，其余错误必须暴露出来")
+	}
+	if removeErr != nil && !errors.Is(removeErr, gorm.ErrRecordNotFound) {
+		assert.Contains(t, strings.ToLower(removeErr.Error()), "locked",
+			"成员移除只接受写锁竞争失败或成员行已随账号消失，其余错误必须暴露出来")
 	}
 }
 

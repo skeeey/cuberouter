@@ -601,6 +601,9 @@ func DeleteUserById(id int) (err error) {
 	return user.Delete()
 }
 
+// HardDeleteUserById 是 HardDelete 的按 id 入口，同样只清理账号自身：需要一并收口
+// 组织成员关系的调用方必须走 service.DeleteUserAccount，直接调用本函数会让成员行
+// 残留，被下一个复用该 user id 的账号继承。
 func HardDeleteUserById(id int) error {
 	if id == 0 {
 		return errors.New("id 为空！")
@@ -1081,6 +1084,9 @@ func HardDeleteUserWithTx(tx *gorm.DB, userId int) (*HardDeletedUser, error) {
 	return deleted, nil
 }
 
+// HardDelete 在独立事务里硬删一个账号，只清理账号自身，不碰组织状态：需要一并收口
+// 组织成员关系的调用方必须走 service.DeleteUserAccount，直接调用本函数会让成员行
+// 残留，被下一个复用该 user id 的账号继承。
 func (user *User) HardDelete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")

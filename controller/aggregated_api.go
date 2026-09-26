@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"math"
@@ -856,7 +857,14 @@ func AggregatedDeleteUser(c *gin.Context) {
 	}
 
 	if err := service.DeleteUserAccount(c.GetInt("id"), userId, organizationAuditRequestMetadata(c)); err != nil {
-		common.SysError(fmt.Sprintf("AggregatedDeleteUser error: %v", err))
+		var blockedErr *service.OrganizationOperationBlockedError
+		if errors.As(err, &blockedErr) {
+			// 预期的业务拒绝（owner / 持 key）：与 dashboard 入口一致，不写到 error 级，
+			// 否则每个被拒请求都会在 [SYS] 里留一行，把真正需要处置的错误稀释掉。
+			common.SysLog(fmt.Sprintf("AggregatedDeleteUser refused: %v", err))
+		} else {
+			common.SysError(fmt.Sprintf("AggregatedDeleteUser error: %v", err))
+		}
 		// 该端点的响应体没有 code 位，拒绝原因必须在 message 里自解释：service 的
 		// 拒绝文案已点名组织与处置动作（转让所有权 / 移交 key）。
 		aggregatedFail(c, fmt.Sprintf("删除用户失败: %s", err.Error()))
