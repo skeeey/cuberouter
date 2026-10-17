@@ -54,6 +54,7 @@ import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import {
   batchCreateOrganizationTokens,
   createOrganizationToken,
+  getOrganizationMemberModelAccess,
   updateOrganizationToken,
   updateOrganizationTokenResponsibility,
 } from '../api'
@@ -65,6 +66,7 @@ import {
   organizationTokenFullKey,
   organizationTokenOwnerName,
   organizationTokenVisibilityMeta,
+  responsibleUserIdOf,
   ORGANIZATION_TOKEN_EXPIRY_SHORTCUTS,
   ORGANIZATION_TOKEN_FORM_DEFAULT_VALUES,
   ORGANIZATION_TOKEN_VISIBILITIES,
@@ -77,8 +79,8 @@ import type {
   OrganizationTokenBatchCreateResult,
   OrganizationTokenRow,
 } from '../types'
-import { OrganizationTokenKeyCell } from './organization-token-key-cell'
 import { useOrganizationSurface } from './organization-page-provider'
+import { OrganizationTokenKeyCell } from './organization-token-key-cell'
 
 const TOKEN_FORM_ID = 'organization-token-form'
 
@@ -137,6 +139,7 @@ export function OrganizationTokenFormDialog(
   const unlimitedQuota = form.watch('unlimited_quota')
   const group = form.watch('group')
   const visibility = form.watch('visibility')
+  const modelLimits = form.watch('model_limits')
 
   const { options: responsibleOptions, isLoading: isLoadingResponsible } =
     useOrganizationTokenResponsibleOptions(
@@ -152,6 +155,49 @@ export function OrganizationTokenFormDialog(
     enabled: props.open,
     staleTime: 0,
   })
+
+  // The models a key may be limited to belong to the member who holds it, not
+  // to whoever is operating the dialog: the backend refuses a key restricted to
+  // a model its responsible member cannot use. The watched value is absent only
+  // before the form has been reset, so an edit falls back to the stored holder —
+  // the same resolution the save payload makes.
+  const responsibleUserId =
+    form.watch('responsible_user_id') ||
+    (editing ? responsibleUserIdOf(editing) : 0)
+
+  const { data: memberAccess, isError: memberAccessFailed } = useQuery({
+    queryKey: [
+      'organization-member-model-access',
+      surface,
+      props.organizationId,
+      responsibleUserId,
+    ],
+    queryFn: () =>
+      getOrganizationMemberModelAccess(
+        props.organizationId,
+        responsibleUserId,
+        surface
+      ),
+    // The read is an administrator's view of a member's allow-list, and it is
+    // registered on the member surface only. A member editing their own key has
+    // no such view — the backend enforces the same restriction on save — and the
+    // platform administrator surface has no mirrored route, so neither asks.
+    enabled:
+      props.open &&
+      props.canManageAllTokens &&
+      surface === 'member' &&
+      responsibleUserId > 0,
+  })
+
+  // A restricted member's allow-list is the only set a key held by them may
+  // name; an empty list means "unrestricted", not "no models". A read that is
+  // loading, refused or failed falls back to the operator's own models rather
+  // than to an empty picker — a refetch failure keeps the previous success in
+  // `data`, which is stale and must not narrow the picker either. The save is
+  // still refused by the backend if it names a model the member cannot use.
+  const accessModels = memberAccessFailed ? [] : (memberAccess?.access ?? [])
+  const restrictedModels = accessModels.length > 0 ? accessModels : null
+  const modelOptions = restrictedModels ?? models?.data ?? []
 
   // Reloaded whenever the target changes, so reopening on another key never
   // shows the previous one's numbers.
@@ -199,6 +245,23 @@ export function OrganizationTokenFormDialog(
     responsibleOptions,
     form,
   ])
+
+  // The picked models follow the holder: a key switched to a member whose
+  // allow-list is narrower keeps only the intersection, rather than submitting
+  // entries that no longer have an option behind them. An unrestricted fallback
+  // never trims — it is not a narrowing, only a wider set to choose from.
+  useEffect(() => {
+    if (!restrictedModels) return
+    const allowed = new Set(restrictedModels)
+    // Read at effect time rather than from the watched value above: on the
+    // commit that resets this form for another key, that value is still the
+    // previous key's selection and would overwrite the stored limits that were
+    // just loaded.
+    const current = form.getValues('model_limits')
+    const next = current.filter((model) => allowed.has(model))
+    if (next.length === current.length) return
+    form.setValue('model_limits', next)
+  }, [restrictedModels, modelLimits, form])
 
   const submit = async (values: OrganizationTokenFormValues) => {
     const payload = transformOrganizationTokenFormToPayload(values, {
@@ -308,9 +371,7 @@ export function OrganizationTokenFormDialog(
         open={props.open}
         onOpenChange={props.onOpenChange}
         title={
-          isUpdate
-            ? t('Edit organization key')
-            : t('Create organization key')
+          isUpdate ? t('Edit organization key') : t('Create organization key')
         }
         description={
           isUpdate
@@ -331,11 +392,7 @@ export function OrganizationTokenFormDialog(
             >
               {t('Cancel')}
             </Button>
-            <Button
-              type='submit'
-              form={TOKEN_FORM_ID}
-              disabled={isSubmitting}
-            >
+            <Button type='submit' form={TOKEN_FORM_ID} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className='animate-spin' /> : null}
               {isUpdate ? t('Save changes') : t('Create')}
             </Button>
@@ -468,9 +525,7 @@ export function OrganizationTokenFormDialog(
                       >
                         <FormControl>
                           <SelectTrigger className='w-full'>
-                            <SelectValue
-                              placeholder={t('Select a member')}
-                            />
+                            <SelectValue placeholder={t('Select a member')} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -576,9 +631,7 @@ export function OrganizationTokenFormDialog(
                           field.onChange(
                             shortcut.seconds === null
                               ? undefined
-                              : new Date(
-                                  Date.now() + shortcut.seconds * 1000
-                                )
+                              : new Date(Date.now() + shortcut.seconds * 1000)
                           )
                         }
                       >
@@ -669,7 +722,7 @@ export function OrganizationTokenFormDialog(
                   <FormLabel>{t('Model Limits')}</FormLabel>
                   <FormControl>
                     <MultiSelect
-                      options={(models?.data ?? []).map((model) => ({
+                      options={modelOptions.map((model) => ({
                         label: model,
                         value: model,
                       }))}
@@ -712,10 +765,7 @@ export function OrganizationTokenFormDialog(
         </Form>
       </Dialog>
 
-      <CreatedTokensDialog
-        result={created}
-        onClose={() => setCreated(null)}
-      />
+      <CreatedTokensDialog result={created} onClose={() => setCreated(null)} />
     </>
   )
 }

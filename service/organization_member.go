@@ -192,6 +192,8 @@ func AddOrganizationMember(operatorUserId, organizationId int, accessMode string
 	if err != nil {
 		return nil, err
 	}
+	// 加入（含重新加入）会改变该用户的有效集：刚复活的行可能带着白名单。
+	invalidateUserModelAllowListCaches(req.UserId)
 	var view MemberView
 	err = model.DB.Table("organization_members").
 		Select("organization_members.*, users.username, users.display_name, users.email").
@@ -364,6 +366,7 @@ func UpdateOrganizationMember(operatorUserId, organizationId int, accessMode str
 	now := common.GetTimestamp()
 	var affectedCacheKeys []string
 	operatorRole := ""
+	memberStatusChanged := false
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		organization, decision, err := lockedOrganizationManagementDecisionWithTx(tx, operatorUserId, organizationId, accessMode, OrganizationCapabilityManageMembers)
 		if err != nil {
@@ -411,6 +414,8 @@ func UpdateOrganizationMember(operatorUserId, organizationId int, accessMode str
 			affectedCacheKeys = append(affectedCacheKeys, transferredKeys...)
 		}
 		wasDisabled := target.Status == model.OrganizationMemberStatusDisabled
+		// 只有状态进出 active 才改变有效白名单（角色不参与计算），据此决定提交后是否失效缓存。
+		memberStatusChanged = newStatus != before.Status
 		previousDisabledSource := target.DisabledSource
 		newDisabledSource := target.DisabledSource
 		if status == model.OrganizationMemberStatusDisabled {
@@ -462,6 +467,9 @@ func UpdateOrganizationMember(operatorUserId, organizationId int, accessMode str
 		return err
 	}
 	invalidateOrganizationTokenCaches(affectedCacheKeys...)
+	if memberStatusChanged {
+		invalidateUserModelAllowListCaches(targetUserId)
+	}
 	return nil
 }
 
@@ -539,6 +547,103 @@ func UpdateOrganizationMemberModelDiscounts(operatorUserId, organizationId int, 
 	return nil
 }
 
+// GetOrganizationMemberModelAccess 读取组织成员个人的可用模型白名单（DB 直读）。
+// 白名单与成员名单同权限：只有能看到全组织数据的人读得到。access 为空表示当前不限制；
+// universe 是组织组当前可见的全部模型，供前端渲染可选项。
+func GetOrganizationMemberModelAccess(operatorUserId, organizationId int, accessMode string, targetUserId int) (access []string, universe []string, err error) {
+	if operatorUserId <= 0 || organizationId <= 0 || targetUserId <= 0 {
+		return nil, nil, errors.New("invalid organization member request")
+	}
+	actor, err := GetOrganizationActorContextForAccessMode(operatorUserId, organizationId, accessMode, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !actor.Capabilities.CanViewOrganizationWideData {
+		return nil, nil, errors.New("permission denied")
+	}
+	var member model.OrganizationMember
+	if err := model.DB.Where("organization_id = ? AND user_id = ? AND status = ?", organizationId, targetUserId, model.OrganizationMemberStatusActive).First(&member).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, errors.New("active organization member required")
+		}
+		return nil, nil, err
+	}
+	return model.ParseMemberModelAccess(member.ModelAccess), GetGroupsEnabledModels([]string{NormalizeOrganizationGroup(actor.Organization.Group)}), nil
+}
+
+// UpdateOrganizationMemberModelAccess 全量替换组织成员个人的可用模型白名单（空列表即解除限制）。
+// 白名单跟随成员本人：写入后对该成员可见模型、自建 Key 与运行时调用一并生效。校验错误
+// 原样返回，由控制器的通用组织错误通道落成 400。
+func UpdateOrganizationMemberModelAccess(operatorUserId, organizationId int, accessMode string, targetUserId int, models []string, auditMetadata ...OrganizationAuditRequestMetadata) error {
+	if operatorUserId <= 0 || organizationId <= 0 || targetUserId <= 0 {
+		return errors.New("invalid organization member request")
+	}
+	if err := model.ValidateMemberModelAccess(models); err != nil {
+		return err
+	}
+	raw := model.MarshalMemberModelAccess(models)
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		organization, decision, err := lockedOrganizationManagementDecisionWithTx(tx, operatorUserId, organizationId, accessMode, OrganizationCapabilityManageMemberModels)
+		if err != nil {
+			return err
+		}
+		var target model.OrganizationMember
+		if err := model.LockForUpdate(tx).Where("organization_id = ? AND user_id = ? AND status = ?", organizationId, targetUserId, model.OrganizationMemberStatusActive).First(&target).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("active organization member required")
+			}
+			return err
+		}
+		if err := ensureOrganizationMemberTargetAllowed(decision, organization, &target); err != nil {
+			return err
+		}
+		// 成员行就是本次替换的那一行，锁定后再取 before，保证审计里的旧值与新值是同一份快照。
+		// 列可为 NULL（早于该列的行），所以用 NullString 接。
+		var row struct {
+			Id          int
+			ModelAccess sql.NullString
+		}
+		if err := model.LockForUpdate(tx).Model(&model.OrganizationMember{}).Select("id", "model_access").Where("id = ?", target.Id).First(&row).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.OrganizationMember{}).Where("id = ?", target.Id).Update("model_access", raw).Error; err != nil {
+			return err
+		}
+		return recordOrganizationAudit(tx, organization, operatorUserId, decision.Role, organizationAuditActionMemberModelAccessUpdate, "member", target.Id, model.ParseMemberModelAccess(row.ModelAccess.String), model.ParseMemberModelAccess(raw), organizationAuditReasonMemberModelAccessUpdate, auditMetadata...)
+	})
+	if err != nil {
+		return err
+	}
+	// 白名单不推进认证版本，缓存必须显式刷新；刷新失败只记日志，缓存未命中会回源 DB。
+	if err := model.RefreshUserModelAllowListCache(targetUserId); err != nil {
+		common.SysError(fmt.Sprintf("failed to refresh user model allow list cache for user %d: %s", targetUserId, err.Error()))
+	}
+	return nil
+}
+
+// invalidateUserModelAllowListCaches 让这些用户的有效模型白名单缓存立即失效；失败只记日志，
+// 缓存未命中会回源 DB。白名单不推进认证版本，成员关系一变就必须显式调用它。
+func invalidateUserModelAllowListCaches(userIds ...int) {
+	for _, userId := range userIds {
+		if err := model.RefreshUserModelAllowListCache(userId); err != nil {
+			common.SysError(fmt.Sprintf("failed to refresh user model allow list cache for user %d: %s", userId, err.Error()))
+		}
+	}
+}
+
+// invalidateOrganizationMemberModelAllowListCaches 失效组织全部 active 成员的白名单缓存：
+// 组织状态一变，这些成员的有效集就跟着变（禁用/解散解除限制，启用让限制回来）。
+func invalidateOrganizationMemberModelAllowListCaches(organizationId int) {
+	var userIds []int
+	if err := model.DB.Model(&model.OrganizationMember{}).
+		Where("organization_id = ? AND status = ?", organizationId, model.OrganizationMemberStatusActive).
+		Pluck("user_id", &userIds).Error; err != nil {
+		common.SysError(fmt.Sprintf("failed to list active members of organization %d for model allow list cache refresh: %s", organizationId, err.Error()))
+		return
+	}
+	invalidateUserModelAllowListCaches(userIds...)
+}
+
 func RemoveOrganizationMember(operatorUserId, organizationId int, accessMode string, targetUserId int, req RemoveMemberRequest, auditMetadata ...OrganizationAuditRequestMetadata) error {
 	if operatorUserId <= 0 || organizationId <= 0 || targetUserId <= 0 {
 		return errors.New("invalid organization member request")
@@ -609,6 +714,7 @@ func RemoveOrganizationMember(operatorUserId, organizationId int, accessMode str
 		return err
 	}
 	invalidateOrganizationTokenCaches(affectedCacheKeys...)
+	invalidateUserModelAllowListCaches(targetUserId)
 	return nil
 }
 
@@ -680,6 +786,7 @@ func ExitOrganization(operatorUserId, organizationId int, accessMode string, req
 		return err
 	}
 	invalidateOrganizationTokenCaches(affectedCacheKeys...)
+	invalidateUserModelAllowListCaches(operatorUserId)
 	return nil
 }
 
@@ -787,6 +894,9 @@ func organizationOperationBlockedError(message string, blockers ...string) error
 	return &OrganizationOperationBlockedError{Message: message, Blockers: blockers}
 }
 
+// ReactivateOrganizationMember 在调用方的事务里把成员行恢复为 active（不存在则新建）。
+// 白名单缓存不能在这里失效：事务内的删除会被并发读者用提交前的快照回填，调用方必须在
+// 事务提交后调用 invalidateUserModelAllowListCaches。
 func ReactivateOrganizationMember(tx *gorm.DB, organizationId, userId int, role string, invitedBy int) error {
 	if tx == nil || organizationId <= 0 || userId <= 0 {
 		return errors.New("invalid organization member request")
@@ -813,13 +923,19 @@ func ReactivateOrganizationMember(tx *gorm.DB, organizationId, userId int, role 
 		member.DisabledAt = 0
 		member.ExitedAt = 0
 		member.RemovedAt = 0
-		return tx.Model(&member).Select("role", "status", "disabled_source", "invited_by", "updated_at", "disabled_at", "exited_at", "removed_at").Updates(&member).Error
+		if err := tx.Model(&member).Select("role", "status", "disabled_source", "invited_by", "updated_at", "disabled_at", "exited_at", "removed_at").Updates(&member).Error; err != nil {
+			return err
+		}
+		return nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	member = model.OrganizationMember{OrganizationId: organizationId, UserId: userId, Role: role, Status: model.OrganizationMemberStatusActive, InvitedBy: invitedBy, CreatedAt: now, UpdatedAt: now}
-	return tx.Create(&member).Error
+	if err := tx.Create(&member).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 func transferOrganizationPublicKeysWithTx(tx *gorm.DB, organization *model.Organization, fromUserId, transferToUserId, operatorUserId int, operatorRole string, reason string, auditMetadata ...OrganizationAuditRequestMetadata) ([]string, error) {

@@ -219,6 +219,20 @@ export interface OrganizationMemberRow {
  */
 export type { UserModelDiscounts } from '@/features/users/types'
 
+/**
+ * What one member may use, as the organization sees it.
+ *
+ * `access` is the member's own allow-list; an empty list is not "nothing" but
+ * "no restriction", which is why the two lists are answered together. `models`
+ * is the candidate universe the site offers — the models the organization's
+ * group can reach — so a picker never has to ask a second endpoint what a
+ * member could be allowed to use.
+ */
+export interface MemberModelAccess {
+  access: string[]
+  models: string[]
+}
+
 // ============================================================================
 // Invitations
 // ============================================================================

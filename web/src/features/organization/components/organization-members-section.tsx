@@ -19,10 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
 import {
-  BadgePercent,
   Pencil,
   Power,
   PowerOff,
+  Settings2,
   Trash2,
   UserPlus,
 } from 'lucide-react'
@@ -32,12 +32,13 @@ import { toast } from 'sonner'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
+import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -45,7 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { StatusBadge } from '@/components/status-badge'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatTimestamp } from '@/lib/format'
 
@@ -64,24 +64,25 @@ import {
 import { ORGANIZATION_DEFAULT_PAGE_SIZE } from '../lib/organization-pagination'
 import type { OrganizationMemberRow } from '../types'
 import {
-  OrganizationSection,
-  OrganizationSectionEmpty,
-  OrganizationSectionRefresh,
-} from './organization-section'
-import {
   OrganizationAddMemberDialog,
   OrganizationDemoteAdminDialog,
   OrganizationExitDialog,
   OrganizationMemberEditDialog,
   OrganizationRemoveMemberDialog,
 } from './organization-member-dialogs'
-import { OrganizationMemberDiscountDialog } from './organization-member-discount-dialog'
+import { OrganizationMemberModelSettingsDialog } from './organization-member-model-settings-dialog'
 import {
   useOrganizationSectionRoute,
   useOrganizationSurface,
 } from './organization-page-provider'
+import {
+  OrganizationSection,
+  OrganizationSectionEmpty,
+  OrganizationSectionRefresh,
+} from './organization-section'
 
-const MEMBERS_COLUMN_VISIBILITY_STORAGE_KEY = 'organization-members-column-visibility'
+const MEMBERS_COLUMN_VISIBILITY_STORAGE_KEY =
+  'organization-members-column-visibility'
 
 type OrganizationMembersSectionProps = {
   organizationId: number
@@ -100,6 +101,14 @@ type OrganizationMembersSectionProps = {
    * being read off `canManageMembers`.
    */
   canManageMemberDiscounts: boolean
+  /**
+   * The caller may set the model allow-list of this organization's members.
+   *
+   * A separate grant from managing the membership itself — the backend resolves
+   * it from its own capability — so it arrives as its own flag rather than
+   * being read off `canManageMembers`.
+   */
+  canManageMemberModels: boolean
   canAddMembersDirectly: boolean
   canExitOrganization: boolean
   /**
@@ -127,7 +136,9 @@ type OrganizationMembersSectionProps = {
  * nothing else — so the toolbar is replaced by the section's own actions rather
  * than showing a search box that would filter nothing.
  */
-export function OrganizationMembersSection(props: OrganizationMembersSectionProps) {
+export function OrganizationMembersSection(
+  props: OrganizationMembersSectionProps
+) {
   const { t } = useTranslation()
   const { search, navigate } = useOrganizationSectionRoute()
   const surface = useOrganizationSurface()
@@ -136,24 +147,21 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
   const [removing, setRemoving] = useState<OrganizationMemberRow | null>(null)
   const [demoting, setDemoting] = useState<OrganizationMemberRow | null>(null)
   const [editing, setEditing] = useState<OrganizationMemberRow | null>(null)
-  const [discounting, setDiscounting] = useState<OrganizationMemberRow | null>(
+  const [configuring, setConfiguring] = useState<OrganizationMemberRow | null>(
     null
   )
 
-  const {
-    pagination,
-    onPaginationChange,
-    ensurePageInRange,
-  } = useTableUrlState({
-    search,
-    navigate,
-    pagination: {
-      defaultPage: 1,
-      defaultPageSize: ORGANIZATION_DEFAULT_PAGE_SIZE,
-    },
-    globalFilter: { enabled: false },
-    columnFilters: [],
-  })
+  const { pagination, onPaginationChange, ensurePageInRange } =
+    useTableUrlState({
+      search,
+      navigate,
+      pagination: {
+        defaultPage: 1,
+        defaultPageSize: ORGANIZATION_DEFAULT_PAGE_SIZE,
+      },
+      globalFilter: { enabled: false },
+      columnFilters: [],
+    })
 
   const params = {
     p: pagination.pageIndex + 1,
@@ -176,7 +184,10 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
    * opens a dialog instead of submitting straight away. A promotion has no such
    * consequence and goes through immediately.
    */
-  const changeRole = async (member: OrganizationMemberRow, nextRole: string) => {
+  const changeRole = async (
+    member: OrganizationMemberRow,
+    nextRole: string
+  ) => {
     if (isOrganizationMemberDemotion(member, nextRole)) {
       setDemoting(member)
       return
@@ -222,6 +233,7 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
         // that would be rejected on submit.
         canManageMembers: props.canManageMembers,
         canManageMemberDiscounts: props.canManageMemberDiscounts,
+        canManageMemberModels: props.canManageMemberModels,
         readOnly: props.readOnly,
         actorRole: props.actorRole,
         currentUserId: props.currentUserId,
@@ -229,7 +241,7 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
         onChangeRole: (member, nextRole) => void changeRole(member, nextRole),
         onChangeStatus: (member, status) => void changeStatus(member, status),
         onEdit: (member) => setEditing(member),
-        onModelDiscounts: (member) => setDiscounting(member),
+        onModelSettings: (member) => setConfiguring(member),
         onRemove: (member) => setRemoving(member),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,6 +249,7 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
       t,
       props.canManageMembers,
       props.canManageMemberDiscounts,
+      props.canManageMemberModels,
       props.readOnly,
       props.actorRole,
       props.currentUserId,
@@ -273,7 +286,9 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
     <OrganizationSection
       icon='members'
       title={t('Members')}
-      description={t('Everyone who belongs to this organization, and their role.')}
+      description={t(
+        'Everyone who belongs to this organization, and their role.'
+      )}
       count={members.total}
       actions={
         <div className='flex items-center gap-2'>
@@ -340,10 +355,12 @@ export function OrganizationMembersSection(props: OrganizationMembersSectionProp
         onUpdated={() => members.refetch()}
       />
 
-      <OrganizationMemberDiscountDialog
+      <OrganizationMemberModelSettingsDialog
         organizationId={props.organizationId}
-        member={discounting}
-        onOpenChange={(open) => !open && setDiscounting(null)}
+        member={configuring}
+        canManageMemberModels={props.canManageMemberModels}
+        canManageMemberDiscounts={props.canManageMemberDiscounts}
+        onOpenChange={(open) => !open && setConfiguring(null)}
       />
 
       <OrganizationExitDialog
@@ -362,6 +379,7 @@ type MemberColumnContext = {
   currentUserId: number
   canManageMembers: boolean
   canManageMemberDiscounts: boolean
+  canManageMemberModels: boolean
   readOnly: boolean
   isPlatformAdministrator: boolean
   onChangeRole: (member: OrganizationMemberRow, nextRole: string) => void
@@ -370,7 +388,7 @@ type MemberColumnContext = {
     status: 'active' | 'disabled'
   ) => void
   onEdit: (member: OrganizationMemberRow) => void
-  onModelDiscounts: (member: OrganizationMemberRow) => void
+  onModelSettings: (member: OrganizationMemberRow) => void
   onRemove: (member: OrganizationMemberRow) => void
 }
 
@@ -484,7 +502,9 @@ function buildMemberColumns(
       enableSorting: false,
       enableHiding: false,
       size: 80,
-      cell: ({ row }) => <MemberRowActions context={context} member={row.original} />,
+      cell: ({ row }) => (
+        <MemberRowActions context={context} member={row.original} />
+      ),
     },
   ]
 }
@@ -525,7 +545,10 @@ function MemberRowActions(props: {
     if (!canEdit && !flags.canRemove) return null
 
     return (
-      <DataTableRowActionMenu ariaLabel={t('Open menu')} contentClassName='w-40'>
+      <DataTableRowActionMenu
+        ariaLabel={t('Open menu')}
+        contentClassName='w-40'
+      >
         <DropdownMenuItem
           onSelect={() => props.context.onEdit(props.member)}
           disabled={!canEdit}
@@ -554,20 +577,27 @@ function MemberRowActions(props: {
 
   if (!flags.canChangeStatus && !flags.canRemove) return null
 
-  // Discounts are their own grant, offered on the rows the other member actions
-  // apply to: the backend refuses the owner's row and every row at or above the
-  // actor's own rank, and `canChangeStatus` is the row-level verdict already
-  // computed for them. The platform administrator's menu above does not offer
-  // it — an outside administrator reaches the same record from the users page,
-  // and the organization endpoint only exists for a member.
-  const canManageModelDiscounts =
-    props.context.canManageMemberDiscounts && flags.canChangeStatus
+  // Model settings are their own grant, offered on the rows the other member
+  // actions apply to: the backend refuses the owner's row and every row at or
+  // above the actor's own rank, and `canChangeStatus` is the row-level verdict
+  // already computed for them. Allow-list and discounts share one entry because
+  // they are edited together; either capability opens it, and the dialog itself
+  // leaves out the half the caller may not write. The platform administrator's
+  // menu above does not offer it — an outside administrator reaches the same
+  // record from the users page, and the organization endpoint only exists for a
+  // member.
+  const canManageModelSettings =
+    (props.context.canManageMemberDiscounts ||
+      props.context.canManageMemberModels) &&
+    flags.canChangeStatus
 
   return (
     <DataTableRowActionMenu ariaLabel={t('Open menu')} contentClassName='w-40'>
       {props.member.status === 'active' ? (
         <DropdownMenuItem
-          onSelect={() => props.context.onChangeStatus(props.member, 'disabled')}
+          onSelect={() =>
+            props.context.onChangeStatus(props.member, 'disabled')
+          }
           disabled={!flags.canChangeStatus}
         >
           {t('Disable')}
@@ -587,13 +617,13 @@ function MemberRowActions(props: {
         </DropdownMenuItem>
       )}
 
-      {canManageModelDiscounts ? (
+      {canManageModelSettings ? (
         <DropdownMenuItem
-          onSelect={() => props.context.onModelDiscounts(props.member)}
+          onSelect={() => props.context.onModelSettings(props.member)}
         >
-          {t('Model Discounts')}
+          {t('Model Settings')}
           <DropdownMenuShortcut>
-            <BadgePercent size={16} />
+            <Settings2 size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
       ) : null}

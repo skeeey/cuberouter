@@ -1036,6 +1036,9 @@ func (deleted *HardDeletedUser) Finalize() error {
 	if err := invalidateUserCache(deleted.Id); err != nil {
 		common.SysError(fmt.Sprintf("failed to invalidate user cache after hard deleting user %d: %v", deleted.Id, err))
 	}
+	if err := RefreshUserModelAllowListCache(deleted.Id); err != nil {
+		common.SysError(fmt.Sprintf("failed to invalidate model allow list cache after hard deleting user %d: %v", deleted.Id, err))
+	}
 	return nil
 }
 

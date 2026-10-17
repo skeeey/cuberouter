@@ -46,6 +46,7 @@ const (
 	OrganizationCapabilityViewMembersFull               = "view_members_full"
 	OrganizationCapabilityManageMembers                 = "manage_members"
 	OrganizationCapabilityManageMemberDiscounts         = "manage_member_discounts"
+	OrganizationCapabilityManageMemberModels            = "manage_member_models"
 	OrganizationCapabilityTransferOwner                 = "transfer_owner"
 	OrganizationCapabilityViewInvitations               = "view_invitations"
 	OrganizationCapabilityManageInvitations             = "manage_invitations"
@@ -349,6 +350,7 @@ func capabilitiesForOrganizationRole(role string, input OrganizationPolicyInput,
 			OrganizationCapabilityDissolveOrganization,
 			OrganizationCapabilityManageMembers,
 			OrganizationCapabilityManageMemberDiscounts,
+			OrganizationCapabilityManageMemberModels,
 			OrganizationCapabilityTransferOwner,
 			OrganizationCapabilityViewInvitations,
 			OrganizationCapabilityManageInvitations,
@@ -364,6 +366,7 @@ func capabilitiesForOrganizationRole(role string, input OrganizationPolicyInput,
 			OrganizationCapabilityDisableOrganization,
 			OrganizationCapabilityManageMembers,
 			OrganizationCapabilityManageMemberDiscounts,
+			OrganizationCapabilityManageMemberModels,
 			OrganizationCapabilityViewInvitations,
 			OrganizationCapabilityManageInvitations,
 			OrganizationCapabilityManageOrganizationTokens,

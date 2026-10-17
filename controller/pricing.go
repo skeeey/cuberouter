@@ -99,6 +99,20 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetAccountUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	// 组织成员模型白名单：受限成员只看到白名单内的模型价目（平台管理员与无成员
+	// 限制的用户 allow 为 nil，整段跳过）。只按本请求重建切片，绝不改写共享缓存
+	// 元素——否则会串到其他用户的价目表。
+	if viewerId, ok := userId.(int); exists && ok {
+		if allow := model.GetUserModelAllowList(viewerId); allow != nil {
+			allowedPricing := make([]model.Pricing, 0, len(pricing))
+			for _, item := range pricing {
+				if model.IsModelAllowedByMemberAccess(allow, item.ModelName) {
+					allowedPricing = append(allowedPricing, item)
+				}
+			}
+			pricing = allowedPricing
+		}
+	}
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {

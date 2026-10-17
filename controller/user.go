@@ -727,10 +727,14 @@ func GetUserModels(c *gin.Context) {
 			groupsToQuery = []string{group}
 		}
 	}
+	// 组织成员模型白名单：被查用户带白名单时只回白名单内的模型；nil（平台管理员、
+	// 无成员限制）原样直通，响应与过滤前逐字节一致。
+	models := service.GetGroupsEnabledModels(groupsToQuery)
+	models = model.FilterModelsByMemberAccess(model.GetUserModelAllowList(id), models)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    service.GetGroupsEnabledModels(groupsToQuery),
+		"data":    models,
 	})
 }
 

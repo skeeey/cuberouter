@@ -127,6 +127,27 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 	return true
 }
 
+// validateTokenModelLimitsWithinMemberAccess 校验个人令牌请求里的 model limits 没有越出
+// 归属用户的组织成员模型白名单，越界时写出 MsgTokenModelOutsideMemberAccess 并返回 false。
+// 不启用或为空的 limits 按「未设置」放行，白名单为 nil（不受限）一律放行；运行时
+// distributor 的成员白名单交集仍是最终闸门，这里只是把越界提前到建/改 key 时反馈。
+func validateTokenModelLimitsWithinMemberAccess(c *gin.Context, token *model.Token) bool {
+	if !token.ModelLimitsEnabled {
+		return true
+	}
+	allow := model.GetUserModelAllowList(c.GetInt("id"))
+	if allow == nil {
+		return true
+	}
+	for _, entry := range token.GetModelLimits() {
+		if !model.IsModelAllowedByMemberAccess(allow, entry) {
+			common.ApiErrorI18n(c, i18n.MsgTokenModelOutsideMemberAccess, map[string]any{"Model": entry})
+			return false
+		}
+	}
+	return true
+}
+
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
@@ -296,6 +317,10 @@ func AddToken(c *gin.Context) {
 			return
 		}
 	}
+	// 成员模型白名单：请求带的 model limits 只能落在归属用户的有效允许集内
+	if !validateTokenModelLimitsWithinMemberAccess(c, &token) {
+		return
+	}
 	// 检查用户令牌数量是否已达上限
 	maxTokens := operation_setting.GetMaxUserTokens()
 	count, err := model.CountUserTokens(c.GetInt("id"))
@@ -389,6 +414,10 @@ func UpdateToken(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
+	}
+	// 仅改状态的请求不写 model limits，也就不该被成员白名单拦下（前端开关只发 id + status）
+	if statusOnly == "" && !validateTokenModelLimitsWithinMemberAccess(c, &token) {
+		return
 	}
 	cleanToken, err := model.GetTokenByIds(token.Id, userId)
 	if err != nil {

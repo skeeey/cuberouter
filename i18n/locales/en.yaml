@@ -50,6 +50,7 @@ token.db_error: "Invalid token, database query error, please contact administrat
 token.auto_groups_too_many: "A token can select at most {{.Max}} Auto groups"
 token.auto_groups_duplicate: "Auto group {{.Group}} is duplicated"
 token.auto_groups_invalid: "Auto group {{.Group}} is unavailable or unauthorized"
+token.model_outside_member_access: "Model {{.Model}} is not in the organization's allowed list for your account"
 
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"
@@ -333,6 +334,7 @@ distributor.channel_disabled: "This channel has been disabled"
 distributor.affinity_channel_disabled: "The channel selected by channel affinity has been disabled, and retry was stopped by rule. Please contact the administrator"
 distributor.token_no_model_access: "This token has no access to any models"
 distributor.token_model_forbidden: "This token has no access to model {{.Model}}"
+distributor.member_model_forbidden: "Model {{.Model}} is not in the organization's allowed list for your account"
 distributor.model_name_required: "Model name not specified, model name cannot be empty"
 distributor.invalid_playground_request: "Invalid playground request: {{.Error}}"
 distributor.group_access_denied: "No permission to access this group"

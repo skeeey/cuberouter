@@ -55,6 +55,10 @@ type updateOrganizationMemberModelDiscountsRequest struct {
 	Discounts map[string]float64 `json:"discounts"`
 }
 
+type updateOrganizationMemberModelAccessRequest struct {
+	Models []string `json:"models"`
+}
+
 // ListOrganizationMembers 分页查询组织成员列表
 func ListOrganizationMembers(c *gin.Context) {
 	organizationId, ok := parseOrganizationId(c)
@@ -163,6 +167,49 @@ func UpdateOrganizationMemberModelDiscounts(c *gin.Context) {
 		default:
 			writeOrganizationError(c, err)
 		}
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+// GetOrganizationMemberModelAccess 读取组织成员个人的可用模型白名单
+func GetOrganizationMemberModelAccess(c *gin.Context) {
+	organizationId, ok := parseOrganizationId(c)
+	if !ok {
+		return
+	}
+	targetUserId, ok := parseOrganizationUserId(c)
+	if !ok {
+		return
+	}
+	access, universe, err := service.GetOrganizationMemberModelAccess(c.GetInt("id"), organizationId, organizationAccessMode(c), targetUserId)
+	if err != nil {
+		writeOrganizationError(c, err)
+		return
+	}
+	if access == nil {
+		access = []string{}
+	}
+	common.ApiSuccess(c, gin.H{"access": access, "models": universe})
+}
+
+// UpdateOrganizationMemberModelAccess 全量替换组织成员个人的可用模型白名单（空数组即解除限制）
+func UpdateOrganizationMemberModelAccess(c *gin.Context) {
+	organizationId, ok := parseOrganizationId(c)
+	if !ok {
+		return
+	}
+	targetUserId, ok := parseOrganizationUserId(c)
+	if !ok {
+		return
+	}
+	var req updateOrganizationMemberModelAccessRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if err := service.UpdateOrganizationMemberModelAccess(c.GetInt("id"), organizationId, organizationAccessMode(c), targetUserId, req.Models, organizationAuditRequestMetadata(c)); err != nil {
+		writeOrganizationError(c, err)
 		return
 	}
 	common.ApiSuccess(c, nil)

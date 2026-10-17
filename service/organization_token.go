@@ -21,6 +21,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -522,6 +523,9 @@ func CreateOrganizationToken(operatorUserId, organizationId int, accessMode stri
 		if err := ensureOrganizationTokenResponsibleUserWithTx(tx, organization, normalizeOrganizationTokenVisibility(req.Visibility), responsibleUserId); err != nil {
 			return err
 		}
+		if err := ensureOrganizationTokenModelLimitsWithinMemberAccess(responsibleUserId, req); err != nil {
+			return err
+		}
 		count, err := countOrganizationTokensWithTx(tx, organizationId)
 		if err != nil {
 			return err
@@ -640,6 +644,9 @@ func BatchCreateOrganizationTokens(operatorUserId, organizationId int, accessMod
 			responsibleUserId = operatorUserId
 		}
 		if err := ensureOrganizationTokenResponsibleUserWithTx(tx, organization, normalizeOrganizationTokenVisibility(req.Token.Visibility), responsibleUserId); err != nil {
+			return err
+		}
+		if err := ensureOrganizationTokenModelLimitsWithinMemberAccess(responsibleUserId, req.Token); err != nil {
 			return err
 		}
 		count, err := countOrganizationTokensWithTx(tx, organizationId)
@@ -781,6 +788,14 @@ func UpdateOrganizationToken(operatorUserId, organizationId int, accessMode stri
 			}
 		} else if responsibleUserId != token.ResponsibleUserId {
 			return errors.New("permission denied")
+		}
+		// 只有本次请求实际改动了 model limits 才按白名单校验：白名单可能在建 Key 之后
+		// 收窄，存量 limits 不回写（运行时交集仍会拦住越界模型），状态切换/改名/改额度
+		// 不该因此被拒，否则这把 Key 会永久无法禁用或修复。
+		if organizationTokenModelLimitsChanged(token, req) {
+			if err := ensureOrganizationTokenModelLimitsWithinMemberAccess(responsibleUserId, req); err != nil {
+				return err
+			}
 		}
 		if req.Status == common.TokenStatusDisabled {
 			if err := ensureOrganizationTokenSystemBlockerWithTx(tx, token, organizationTokenBlockerReasonManualDisabled, organizationTokenBlockerRefTypeOperator, operatorUserId, operatorUserId, organizationTokenBlockerClearanceForActor(actor), now); err != nil {
@@ -1081,6 +1096,64 @@ func ensureOrganizationTokenVisibilityAllowed(canManageAllTokens bool, visibilit
 		return errors.New("permission denied")
 	}
 	return nil
+}
+
+// ensureOrganizationTokenModelLimitsWithinMemberAccess 拒绝把组织 Key 的 model limits 设到
+// 责任成员的有效模型白名单之外：不启用或为空的 limits 按「未设置」放行，白名单为 nil
+// （成员不受限）一律放行。错误经控制器既有的 writeOrganizationError 通道以 400 返回；
+// 运行时 distributor 的成员白名单交集仍是最终闸门，这里只是把越界提前到建/改 key 时反馈。
+func ensureOrganizationTokenModelLimitsWithinMemberAccess(responsibleUserId int, req OrganizationTokenRequest) error {
+	if !req.ModelLimitsEnabled {
+		return nil
+	}
+	allow := model.GetUserModelAllowList(responsibleUserId)
+	if allow == nil {
+		return nil
+	}
+	for _, entry := range req.GetModelLimits() {
+		if !model.IsModelAllowedByMemberAccess(allow, entry) {
+			return fmt.Errorf("model %s is not in the organization's allowed list for the responsible member's account", entry)
+		}
+	}
+	return nil
+}
+
+// organizationTokenModelLimitsChanged reports whether an update would change the
+// token's stored model limits. Updates that leave them untouched (status
+// toggles, renames, quota edits) must not be revalidated: a member allow list
+// narrowed after the key was created already restricts the key at runtime, and
+// rejecting every other edit would make the key impossible to disable or
+// repair.
+func organizationTokenModelLimitsChanged(token *model.Token, req OrganizationTokenRequest) bool {
+	if token.ModelLimitsEnabled != req.ModelLimitsEnabled {
+		return true
+	}
+	return !sameModelLimitNames(token.GetModelLimits(), req.GetModelLimits())
+}
+
+// sameModelLimitNames compares two model limit lists as sets of trimmed,
+// non-empty names, so reordering or surrounding whitespace alone is not a
+// change.
+func sameModelLimitNames(a, b []string) bool {
+	toSet := func(models []string) map[string]struct{} {
+		set := make(map[string]struct{}, len(models))
+		for _, name := range models {
+			if name = strings.TrimSpace(name); name != "" {
+				set[name] = struct{}{}
+			}
+		}
+		return set
+	}
+	setA, setB := toSet(a), toSet(b)
+	if len(setA) != len(setB) {
+		return false
+	}
+	for name := range setA {
+		if _, ok := setB[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureOrganizationTokenResponsibleUserWithTx(tx *gorm.DB, organization *model.Organization, visibility string, targetUserId int) error {

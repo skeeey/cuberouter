@@ -248,6 +248,16 @@ func ListModels(c *gin.Context, modelType int) {
 			tokenModelLimit = map[string]bool{}
 		}
 	}
+	// 组织成员模型白名单：与 distributor 同写法解析 actor（组织 Key 按责任成员）；
+	// 有效允许集非 nil（受限）时才收窄，nil 直通，未受限用户的响应逐字节不变。
+	actorUserId := common.GetContextKeyInt(c, constant.ContextKeyActorUserId)
+	if actorUserId <= 0 {
+		actorUserId = common.GetContextKeyInt(c, constant.ContextKeyUserId)
+	}
+	var memberAllow []string
+	if actorUserId > 0 {
+		memberAllow = model.GetUserModelAllowList(actorUserId)
+	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
 	for _, modelName := range models {
 		if modelLimitEnable {
@@ -255,6 +265,9 @@ func ListModels(c *gin.Context, modelType int) {
 			if !tokenModelLimit[modelName] && !tokenModelLimit[matchingName] {
 				continue
 			}
+		}
+		if memberAllow != nil && !model.IsModelAllowedByMemberAccess(memberAllow, modelName) {
+			continue
 		}
 		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
 			continue

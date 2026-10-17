@@ -26,6 +26,7 @@ import {
   type OrganizationSurface,
 } from './lib/organization-surface'
 import type {
+  MemberModelAccess,
   OrganizationApiResponse,
   OrganizationAuditLogRow,
   OrganizationBillingMonthlySummaryResponse,
@@ -424,6 +425,71 @@ export async function updateOrganizationMemberModelDiscounts(
   const res = await api.put(
     `${organizationResourceBase(surface, organizationId)}/members/${userId}/model-discounts`,
     { discounts }
+  )
+  if (res.data?.success === false) {
+    throw new Error(res.data.message || 'Request failed')
+  }
+}
+
+/**
+ * The models one member is allowed to use, as the organization's administrators
+ * see them.
+ *
+ * The answer carries both the member's own list and the site's candidate
+ * universe, so the caller never has to assemble the picker from two sources.
+ * An empty `access` means the member is unrestricted — it is not an empty
+ * allow-list — so an absent list is defaulted rather than required.
+ *
+ * A refusal (member no longer active, no longer readable) is answered as HTTP
+ * 200 with `success: false`, which must throw: defaulting on that envelope
+ * would present the member as unrestricted, and the full replacement this
+ * dialog saves would then clear the record the caller never read.
+ *
+ * The member's own record is read here through the organization, which is what
+ * limits the reach to the caller's active members and records the visit in the
+ * organization audit trail.
+ */
+export async function getOrganizationMemberModelAccess(
+  organizationId: number,
+  userId: number,
+  surface: OrganizationSurface
+): Promise<MemberModelAccess> {
+  const res = await api.get(
+    `${organizationResourceBase(surface, organizationId)}/members/${userId}/model-access`
+  )
+  const payload = res.data as
+    | OrganizationApiResponse<MemberModelAccess>
+    | undefined
+  if (payload?.success === false) {
+    throw new Error(payload.message || 'Request failed')
+  }
+  return {
+    access: payload?.data?.access ?? [],
+    models: payload?.data?.models ?? [],
+  }
+}
+
+/**
+ * Replaces a member's model allow-list; an empty list removes the restriction
+ * and leaves every model available again.
+ *
+ * The list has to be the caller's complete answer for that member — the backend
+ * stores what it is given, not a merge — so the caller sends the whole
+ * selection rather than a delta.
+ *
+ * A business-level refusal — a malformed name, an out-of-range list — is
+ * answered HTTP 200 with `success: false`, which must throw: otherwise the
+ * dialog would close as if the rejected selection had been stored.
+ */
+export async function updateOrganizationMemberModelAccess(
+  organizationId: number,
+  userId: number,
+  models: string[],
+  surface: OrganizationSurface
+): Promise<void> {
+  const res = await api.put(
+    `${organizationResourceBase(surface, organizationId)}/members/${userId}/model-access`,
+    { models }
   )
   if (res.data?.success === false) {
     throw new Error(res.data.message || 'Request failed')

@@ -54,6 +54,7 @@ const (
 	organizationAuditActionMemberKeyTransfer          = "organization.member.key_transfer"
 	organizationAuditActionMemberKeyTransferBlocked   = "organization.member.key_transfer_blocked"
 	organizationAuditActionMemberModelDiscountsUpdate = "organization.member.model_discounts.update"
+	organizationAuditActionMemberModelAccessUpdate    = "organization.member.model_access.update"
 	organizationAuditActionOwnerTransfer              = "organization.owner.transfer"
 	organizationAuditActionTokenCreate                = "organization.token.create"
 	organizationAuditActionTokenUpdate                = "organization.token.update"
@@ -73,7 +74,10 @@ const (
 	// 折扣挂在成员个人身上：写这张表对该成员的全部调用生效（含个人钱包），
 	// 组织 Key 的调用按 Key 的责任成员归因到同一张表。审计里要把这层语义说清楚。
 	organizationAuditReasonMemberModelDiscountsUpdate = "applies to all of this member's calls (personal wallet included); organization key calls are attributed to the key's responsible member"
-	organizationAuditOperatorRoleSystem               = "system"
+	// 白名单决定该成员能看见、能自建 Key、能被放行调用哪些模型，空列表即解除限制。
+	// 审计里要把这层语义说清楚。
+	organizationAuditReasonMemberModelAccessUpdate = "sets the models this member can see and call; an empty list lifts the restriction"
+	organizationAuditOperatorRoleSystem            = "system"
 )
 
 type OrganizationAuditRequestMetadata struct {

@@ -170,6 +170,7 @@ export {
   organizationTokenFormSchema,
   ORGANIZATION_TOKEN_FORM_DEFAULT_VALUES,
   ORGANIZATION_TOKEN_MAX_BATCH,
+  responsibleUserIdOf,
   transformOrganizationTokenFormToPayload,
   transformOrganizationTokenToFormDefaults,
   type OrganizationTokenFormValues,
