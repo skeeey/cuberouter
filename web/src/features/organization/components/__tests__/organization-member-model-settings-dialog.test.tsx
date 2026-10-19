@@ -554,7 +554,7 @@ describe('organization member model settings entry', () => {
     })
     expect(queryClient.getQueryState(tokenFormKey)?.isInvalidated).toBe(false)
 
-    renderSection(true, true, queryClient)
+    renderSection(true, true, true, queryClient)
     await openSettingsDialog()
     await waitFor(() => expect(selectedModels()).toEqual(STORED_ACCESS))
 
