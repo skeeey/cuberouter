@@ -376,6 +376,7 @@
     "This invitation was sent to a different email address. Sign in with that address to accept it.": "该邀请发送到了其他邮箱地址。请使用该地址登录后再接受。",
     "This key cannot be enabled while a blocker is active.": "存在生效中的阻断项时，无法启用该 Key。",
     "This key was disabled by a higher-privilege administrator. Your account cannot enable it.": "该 Key 由更高权限的管理员禁用，当前账号无权启用。",
+    "This member has reached their quota limit in this organization.": "该成员在组织内的配额已用尽。",
     "This member was disabled by the platform. The organization cannot re-enable them by itself.": "该成员已被平台禁用。组织无法自行重新启用。",
     "This operation is blocked. Resolve the listed blockers and try again.": "该操作已被阻断。请先解决列出的阻断项后重试。",
     "This organization has been dissolved and can no longer be used.": "该组织已解散，无法继续使用。",
@@ -6138,6 +6139,15 @@
     "Member Model Access": "成员模型访问",
     "All models are available by default; select models to restrict this member. Clear the selection to remove the restriction.": "默认所有模型均可用；勾选模型以限制该成员。清空选择即解除限制。",
     "Model Settings": "模型设置",
-    "Member Model Settings": "成员模型设置"
+    "Member Settings": "成员设置",
+    "Quota Limit": "配额上限",
+    "Cumulative consumption limit": "累计消费上限",
+    "Enter a non-negative amount, or leave the field empty for no limit.": "请输入非负金额，或留空表示不限制。",
+    "The amount is too small to be a limit. Enter a larger amount or leave the field empty for no limit.": "金额太小，无法作为上限。请输入更大的金额，或留空表示不限制。",
+    "Counts this member's organization consumption only; personal wallet usage is not included.": "仅统计该成员在组织内的消费，不包含个人钱包用量。",
+    "Set the total this member may consume inside the organization. Leave it empty for no limit.": "设置该成员在组织内的累计消费上限，留空表示不限制。",
+    "Limit": "上限",
+    "Remaining allocatable": "可分配余额",
+    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "成员配额上限总和已超过组织配额。请先调低成员上限或提高组织配额，再设置新的上限。"
   }
 }

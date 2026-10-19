@@ -64,6 +64,7 @@ const noOrganizationCapabilities = {
   can_manage_members: false,
   can_manage_member_discounts: false,
   can_manage_member_models: false,
+  can_manage_member_quotas: false,
   can_transfer_owner: false,
   can_add_members_directly: false,
   can_exit_organization: false,

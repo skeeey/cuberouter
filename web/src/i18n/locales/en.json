@@ -376,6 +376,7 @@
     "This invitation was sent to a different email address. Sign in with that address to accept it.": "This invitation was sent to a different email address. Sign in with that address to accept it.",
     "This key cannot be enabled while a blocker is active.": "This key cannot be enabled while a blocker is active.",
     "This key was disabled by a higher-privilege administrator. Your account cannot enable it.": "This key was disabled by a higher-privilege administrator. Your account cannot enable it.",
+    "This member has reached their quota limit in this organization.": "This member has reached their quota limit in this organization.",
     "This member was disabled by the platform. The organization cannot re-enable them by itself.": "This member was disabled by the platform. The organization cannot re-enable them by itself.",
     "This operation is blocked. Resolve the listed blockers and try again.": "This operation is blocked. Resolve the listed blockers and try again.",
     "This organization has been dissolved and can no longer be used.": "This organization has been dissolved and can no longer be used.",
@@ -6138,6 +6139,15 @@
     "Member Model Access": "Member Model Access",
     "All models are available by default; select models to restrict this member. Clear the selection to remove the restriction.": "All models are available by default; select models to restrict this member. Clear the selection to remove the restriction.",
     "Model Settings": "Model Settings",
-    "Member Model Settings": "Member Model Settings"
+    "Member Settings": "Member Settings",
+    "Quota Limit": "Quota Limit",
+    "Cumulative consumption limit": "Cumulative consumption limit",
+    "Enter a non-negative amount, or leave the field empty for no limit.": "Enter a non-negative amount, or leave the field empty for no limit.",
+    "The amount is too small to be a limit. Enter a larger amount or leave the field empty for no limit.": "The amount is too small to be a limit. Enter a larger amount or leave the field empty for no limit.",
+    "Counts this member's organization consumption only; personal wallet usage is not included.": "Counts this member's organization consumption only; personal wallet usage is not included.",
+    "Set the total this member may consume inside the organization. Leave it empty for no limit.": "Set the total this member may consume inside the organization. Leave it empty for no limit.",
+    "Limit": "Limit",
+    "Remaining allocatable": "Remaining allocatable",
+    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another."
   }
 }

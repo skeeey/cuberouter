@@ -27,6 +27,7 @@ import {
 } from './lib/organization-surface'
 import type {
   MemberModelAccess,
+  MemberQuota,
   OrganizationApiResponse,
   OrganizationAuditLogRow,
   OrganizationBillingMonthlySummaryResponse,
@@ -490,6 +491,65 @@ export async function updateOrganizationMemberModelAccess(
   const res = await api.put(
     `${organizationResourceBase(surface, organizationId)}/members/${userId}/model-access`,
     { models }
+  )
+  if (res.data?.success === false) {
+    throw new Error(res.data.message || 'Request failed')
+  }
+}
+
+/**
+ * A member's quota ceiling inside the organization, and the pool it draws from.
+ *
+ * Every field is in quota units; the dollar conversion belongs to the dialog
+ * that displays them. `limit` of `0` means unlimited, so a missing payload is
+ * defaulted to that safe reading — an absent number must not surface as `NaN`
+ * in the conversion or as a ceiling the member does not have.
+ *
+ * A refusal (member no longer active, no longer readable) is answered as HTTP
+ * 200 with `success: false`, which must throw: defaulting on that envelope
+ * would present a member the caller may not read as unrestricted.
+ */
+export async function getOrganizationMemberQuota(
+  organizationId: number,
+  userId: number,
+  surface: OrganizationSurface
+): Promise<MemberQuota> {
+  const res = await api.get(
+    `${organizationResourceBase(surface, organizationId)}/members/${userId}/quota`
+  )
+  const payload = res.data as OrganizationApiResponse<MemberQuota> | undefined
+  if (payload?.success === false) {
+    throw new Error(payload.message || 'Request failed')
+  }
+  return {
+    limit: payload?.data?.limit ?? 0,
+    used: payload?.data?.used ?? 0,
+    organization_quota: payload?.data?.organization_quota ?? 0,
+    allocated: payload?.data?.allocated ?? 0,
+    over_allocated: payload?.data?.over_allocated ?? false,
+  }
+}
+
+/**
+ * Sets a member's quota ceiling inside the organization.
+ *
+ * The value is in quota units, not dollars — the dialog converts what the
+ * operator typed before calling this. `0` removes the ceiling; the backend
+ * rejects a negative limit.
+ *
+ * A business-level refusal — a negative limit, an owner's row — is answered
+ * HTTP 200 with `success: false`, which must throw: otherwise the dialog would
+ * close as if the rejected limit had been stored.
+ */
+export async function updateOrganizationMemberQuota(
+  organizationId: number,
+  userId: number,
+  limit: number,
+  surface: OrganizationSurface
+): Promise<void> {
+  const res = await api.put(
+    `${organizationResourceBase(surface, organizationId)}/members/${userId}/quota`,
+    { limit }
   )
   if (res.data?.success === false) {
     throw new Error(res.data.message || 'Request failed')

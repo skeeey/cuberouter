@@ -688,6 +688,7 @@ export const STATIC_I18N_KEYS = [
   'This invitation was sent to a different email address. Sign in with that address to accept it.',
   'This key cannot be enabled while a blocker is active.',
   'This key was disabled by a higher-privilege administrator. Your account cannot enable it.',
+  'This member has reached their quota limit in this organization.',
   'This member was disabled by the platform. The organization cannot re-enable them by itself.',
   'This operation is blocked. Resolve the listed blockers and try again.',
   'This organization has been dissolved and can no longer be used.',

@@ -43,6 +43,7 @@ type OrganizationActorCapabilities struct {
 	CanManageMembers                  bool `json:"can_manage_members"`
 	CanManageMemberDiscounts          bool `json:"can_manage_member_discounts"`
 	CanManageMemberModels             bool `json:"can_manage_member_models"`
+	CanManageMemberQuotas             bool `json:"can_manage_member_quotas"`
 	CanTransferOwner                  bool `json:"can_transfer_owner"`
 	CanAddMembersDirectly             bool `json:"can_add_members_directly"`
 	CanExitOrganization               bool `json:"can_exit_organization"`
@@ -194,6 +195,7 @@ func organizationActorCapabilitiesFromPolicy(decision OrganizationPolicyDecision
 		CanManageMembers:                  decision.HasCapability(OrganizationCapabilityManageMembers),
 		CanManageMemberDiscounts:          decision.HasCapability(OrganizationCapabilityManageMemberDiscounts),
 		CanManageMemberModels:             decision.HasCapability(OrganizationCapabilityManageMemberModels),
+		CanManageMemberQuotas:             decision.HasCapability(OrganizationCapabilityManageMemberQuotas),
 		CanTransferOwner:                  decision.HasCapability(OrganizationCapabilityTransferOwner),
 		CanAddMembersDirectly:             isPlatform && decision.HasCapability(OrganizationCapabilityManageMembers),
 		CanExitOrganization:               isOrganizationActor && decision.HasCapability(OrganizationCapabilityExitOrganization),

@@ -233,6 +233,25 @@ export interface MemberModelAccess {
   models: string[]
 }
 
+/**
+ * How much one member may consume inside the organization, and how the
+ * organization's own quota is distributed across its members.
+ *
+ * Every value is in quota units, not dollars — conversion for display belongs
+ * to the dialog. `limit` is the member's own cumulative ceiling, `0` meaning
+ * unlimited, and `used` is what they have consumed in this organization.
+ * `organization_quota` and `allocated` describe the pool the limit draws from;
+ * `over_allocated` is the backend's verdict that the members' limits together
+ * exceed it.
+ */
+export interface MemberQuota {
+  limit: number
+  used: number
+  organization_quota: number
+  allocated: number
+  over_allocated: boolean
+}
+
 // ============================================================================
 // Invitations
 // ============================================================================

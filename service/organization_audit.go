@@ -55,6 +55,7 @@ const (
 	organizationAuditActionMemberKeyTransferBlocked   = "organization.member.key_transfer_blocked"
 	organizationAuditActionMemberModelDiscountsUpdate = "organization.member.model_discounts.update"
 	organizationAuditActionMemberModelAccessUpdate    = "organization.member.model_access.update"
+	organizationAuditActionMemberQuotaUpdate          = "organization.member.quota.update"
 	organizationAuditActionOwnerTransfer              = "organization.owner.transfer"
 	organizationAuditActionTokenCreate                = "organization.token.create"
 	organizationAuditActionTokenUpdate                = "organization.token.update"
@@ -77,7 +78,10 @@ const (
 	// 白名单决定该成员能看见、能自建 Key、能被放行调用哪些模型，空列表即解除限制。
 	// 审计里要把这层语义说清楚。
 	organizationAuditReasonMemberModelAccessUpdate = "sets the models this member can see and call; an empty list lifts the restriction"
-	organizationAuditOperatorRoleSystem            = "system"
+	// 配额是成员在组织内的累计实际消费上限，0 表示不限制（共享组织总额度）。
+	// 审计里要把这层语义说清楚。
+	organizationAuditReasonMemberQuotaUpdate = "sets this member's cumulative organization consumption cap; zero means no cap"
+	organizationAuditOperatorRoleSystem      = "system"
 )
 
 type OrganizationAuditRequestMetadata struct {

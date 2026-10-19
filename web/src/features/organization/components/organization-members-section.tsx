@@ -109,6 +109,14 @@ type OrganizationMembersSectionProps = {
    * being read off `canManageMembers`.
    */
   canManageMemberModels: boolean
+  /**
+   * The caller may set the quota ceiling of this organization's members.
+   *
+   * A separate grant from managing the membership itself — the backend resolves
+   * it from its own capability — so it arrives as its own flag rather than
+   * being read off `canManageMembers`.
+   */
+  canManageMemberQuotas: boolean
   canAddMembersDirectly: boolean
   canExitOrganization: boolean
   /**
@@ -234,6 +242,7 @@ export function OrganizationMembersSection(
         canManageMembers: props.canManageMembers,
         canManageMemberDiscounts: props.canManageMemberDiscounts,
         canManageMemberModels: props.canManageMemberModels,
+        canManageMemberQuotas: props.canManageMemberQuotas,
         readOnly: props.readOnly,
         actorRole: props.actorRole,
         currentUserId: props.currentUserId,
@@ -250,6 +259,7 @@ export function OrganizationMembersSection(
       props.canManageMembers,
       props.canManageMemberDiscounts,
       props.canManageMemberModels,
+      props.canManageMemberQuotas,
       props.readOnly,
       props.actorRole,
       props.currentUserId,
@@ -360,6 +370,7 @@ export function OrganizationMembersSection(
         member={configuring}
         canManageMemberModels={props.canManageMemberModels}
         canManageMemberDiscounts={props.canManageMemberDiscounts}
+        canManageMemberQuotas={props.canManageMemberQuotas}
         onOpenChange={(open) => !open && setConfiguring(null)}
       />
 
@@ -380,6 +391,7 @@ type MemberColumnContext = {
   canManageMembers: boolean
   canManageMemberDiscounts: boolean
   canManageMemberModels: boolean
+  canManageMemberQuotas: boolean
   readOnly: boolean
   isPlatformAdministrator: boolean
   onChangeRole: (member: OrganizationMemberRow, nextRole: string) => void
@@ -577,18 +589,19 @@ function MemberRowActions(props: {
 
   if (!flags.canChangeStatus && !flags.canRemove) return null
 
-  // Model settings are their own grant, offered on the rows the other member
-  // actions apply to: the backend refuses the owner's row and every row at or
-  // above the actor's own rank, and `canChangeStatus` is the row-level verdict
-  // already computed for them. Allow-list and discounts share one entry because
-  // they are edited together; either capability opens it, and the dialog itself
-  // leaves out the half the caller may not write. The platform administrator's
-  // menu above does not offer it — an outside administrator reaches the same
-  // record from the users page, and the organization endpoint only exists for a
-  // member.
+  // Model settings and quota settings are their own grants, offered on the rows
+  // the other member actions apply to: the backend refuses the owner's row and
+  // every row at or above the actor's own rank, and `canChangeStatus` is the
+  // row-level verdict already computed for them. Allow-list, discounts and the
+  // quota ceiling share one entry because they are edited together; any one of
+  // the capabilities opens it, and the dialog itself leaves out the parts the
+  // caller may not write. The platform administrator's menu above does not
+  // offer it — an outside administrator reaches the same record from the users
+  // page, and the organization endpoint only exists for a member.
   const canManageModelSettings =
     (props.context.canManageMemberDiscounts ||
-      props.context.canManageMemberModels) &&
+      props.context.canManageMemberModels ||
+      props.context.canManageMemberQuotas) &&
     flags.canChangeStatus
 
   return (

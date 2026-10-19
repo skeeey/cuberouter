@@ -59,6 +59,10 @@ type updateOrganizationMemberModelAccessRequest struct {
 	Models []string `json:"models"`
 }
 
+type updateOrganizationMemberQuotaRequest struct {
+	Limit int `json:"limit"`
+}
+
 // ListOrganizationMembers 分页查询组织成员列表
 func ListOrganizationMembers(c *gin.Context) {
 	organizationId, ok := parseOrganizationId(c)
@@ -209,6 +213,52 @@ func UpdateOrganizationMemberModelAccess(c *gin.Context) {
 		return
 	}
 	if err := service.UpdateOrganizationMemberModelAccess(c.GetInt("id"), organizationId, organizationAccessMode(c), targetUserId, req.Models, organizationAuditRequestMetadata(c)); err != nil {
+		writeOrganizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+// GetOrganizationMemberQuota 读取组织成员的累计消费上限与预算占用
+func GetOrganizationMemberQuota(c *gin.Context) {
+	organizationId, ok := parseOrganizationId(c)
+	if !ok {
+		return
+	}
+	targetUserId, ok := parseOrganizationUserId(c)
+	if !ok {
+		return
+	}
+	limit, used, organizationQuota, allocated, overAllocated, err := service.GetOrganizationMemberQuota(c.GetInt("id"), organizationId, organizationAccessMode(c), targetUserId)
+	if err != nil {
+		writeOrganizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"limit":              limit,
+		"used":               used,
+		"organization_quota": organizationQuota,
+		"allocated":          allocated,
+		"over_allocated":     overAllocated,
+	})
+}
+
+// UpdateOrganizationMemberQuota 设置组织成员的累计消费上限（0 = 不限制）
+func UpdateOrganizationMemberQuota(c *gin.Context) {
+	organizationId, ok := parseOrganizationId(c)
+	if !ok {
+		return
+	}
+	targetUserId, ok := parseOrganizationUserId(c)
+	if !ok {
+		return
+	}
+	var req updateOrganizationMemberQuotaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if err := service.UpdateOrganizationMemberQuota(c.GetInt("id"), organizationId, organizationAccessMode(c), targetUserId, req.Limit, organizationAuditRequestMetadata(c)); err != nil {
 		writeOrganizationError(c, err)
 		return
 	}
