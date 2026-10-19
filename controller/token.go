@@ -415,13 +415,17 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
-	// 仅改状态的请求不写 model limits，也就不该被成员白名单拦下（前端开关只发 id + status）
-	if statusOnly == "" && !validateTokenModelLimitsWithinMemberAccess(c, &token) {
-		return
-	}
 	cleanToken, err := model.GetTokenByIds(token.Id, userId)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	// 只有本次请求实际改动了 model limits 才按成员白名单校验：白名单可能在建 Key 之后
+	// 收窄，存量 limits 原样回传（改名、改额度等）不该被拒，否则这把 Key 会永久无法
+	// 修复；仅改状态的请求不写 model limits，同样跳过。
+	if statusOnly == "" &&
+		(cleanToken.ModelLimitsEnabled != token.ModelLimitsEnabled || cleanToken.ModelLimits != token.ModelLimits) &&
+		!validateTokenModelLimitsWithinMemberAccess(c, &token) {
 		return
 	}
 	if token.Status == common.TokenStatusEnabled {

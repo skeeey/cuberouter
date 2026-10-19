@@ -290,6 +290,47 @@ test('crops the stored limits of an edited key and saves the intersection', asyn
   )
 })
 
+test('keeps the stored limits and reports them when none belong to the holder', async () => {
+  // bob's allow-list admits neither of the key's stored limits. Trimming the
+  // selection to nothing would save the key as unrestricted, silently widening
+  // it, so the selection is kept and the operator is told why it cannot be
+  // narrowed.
+  getMemberAccessMock.mockImplementation(async (_organizationId, userId) =>
+    userId === RESTRICTED_USER_ID
+      ? { access: ['m2'], models: OPERATOR_MODELS }
+      : { access: [], models: OPERATOR_MODELS }
+  )
+  const key = editedKey()
+  renderDialog(key)
+
+  expect(
+    await screen.findByText(
+      'None of the selected models are available to this member'
+    )
+  ).toBeInTheDocument()
+  expect(selectedModels()).toEqual(['m1', 'm3'])
+
+  const nameInput = screen.getByRole('textbox', { name: 'Name' })
+  await userEvent.clear(nameInput)
+  await userEvent.type(nameInput, 'renamed-key')
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  // The stored selection survives the save, so the key stays restricted rather
+  // than being written back as "no limit".
+  await waitFor(() =>
+    expect(updateTokenMock).toHaveBeenCalledWith(
+      'member',
+      ORGANIZATION_ID,
+      key.id,
+      expect.objectContaining({
+        name: 'renamed-key',
+        model_limits_enabled: true,
+        model_limits: 'm1,m3',
+      })
+    )
+  )
+})
+
 test('keeps the current selection when switching to an unrestricted member', async () => {
   getMemberAccessMock.mockImplementation(async (_organizationId, userId) =>
     userId === RESTRICTED_USER_ID

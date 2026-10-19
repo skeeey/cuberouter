@@ -789,10 +789,11 @@ func UpdateOrganizationToken(operatorUserId, organizationId int, accessMode stri
 		} else if responsibleUserId != token.ResponsibleUserId {
 			return errors.New("permission denied")
 		}
-		// 只有本次请求实际改动了 model limits 才按白名单校验：白名单可能在建 Key 之后
-		// 收窄，存量 limits 不回写（运行时交集仍会拦住越界模型），状态切换/改名/改额度
-		// 不该因此被拒，否则这把 Key 会永久无法禁用或修复。
-		if organizationTokenModelLimitsChanged(token, req) {
+		// 只有本次请求实际改动了 model limits 或责任成员才按白名单校验：白名单可能
+		// 在 Key 建好之后收窄，存量 limits 原样回传（状态切换/改名/改额度）不该因此
+		// 被拒，否则这把 Key 会永久无法禁用或修复。换责任成员则必须重查——限制来自
+		// 新成员的允许集，而不是请求里的 limits。
+		if responsibleUserId != token.ResponsibleUserId || organizationTokenModelLimitsChanged(token, req) {
 			if err := ensureOrganizationTokenModelLimitsWithinMemberAccess(responsibleUserId, req); err != nil {
 				return err
 			}

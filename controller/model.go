@@ -266,14 +266,13 @@ func ListModels(c *gin.Context, modelType int) {
 				continue
 			}
 		}
-		if memberAllow != nil && !model.IsModelAllowedByMemberAccess(memberAllow, modelName) {
-			continue
-		}
 		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
 			continue
 		}
 		userModelNames = append(userModelNames, modelName)
 	}
+	// 白名单批量收窄：规范化集合只构建一次；nil（不受限）直通，顺序保持输入顺序。
+	userModelNames = model.FilterModelsByMemberAccess(memberAllow, userModelNames)
 
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {

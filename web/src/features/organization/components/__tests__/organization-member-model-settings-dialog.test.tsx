@@ -483,6 +483,37 @@ describe('organization member model settings entry', () => {
     )
   })
 
+  test('invalidates the token form allow-list entry after a save', async () => {
+    // The key token form reads the same allow-list under a shorter key — the
+    // account context is not part of it — and caches it for 10s. An exact-key
+    // invalidation leaves that entry stale, so the shared prefix is refreshed.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
+    })
+    const tokenFormKey = [
+      'organization-member-model-access',
+      'member',
+      ORGANIZATION_ID,
+      MEMBER_USER_ID,
+    ]
+    queryClient.setQueryData(tokenFormKey, {
+      access: STORED_ACCESS,
+      models: UNIVERSE,
+    })
+    expect(queryClient.getQueryState(tokenFormKey)?.isInvalidated).toBe(false)
+
+    renderSection(true, true, queryClient)
+    await openSettingsDialog()
+    await waitFor(() => expect(selectedModels()).toEqual(STORED_ACCESS))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(updateModelAccessMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(queryClient.getQueryState(tokenFormKey)?.isInvalidated).toBe(true)
+    )
+  })
+
   test('reopening after a save keeps the saved allow-list, not the pre-save one', async () => {
     // The app sets staleTime to 10s (main.tsx). Without refreshing the cache on
     // save, reopening the dialog within that window serves the pre-save record

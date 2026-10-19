@@ -249,7 +249,10 @@ export function OrganizationTokenFormDialog(
   // The picked models follow the holder: a key switched to a member whose
   // allow-list is narrower keeps only the intersection, rather than submitting
   // entries that no longer have an option behind them. An unrestricted fallback
-  // never trims — it is not a narrowing, only a wider set to choose from.
+  // never trims — it is not a narrowing, only a wider set to choose from. An
+  // empty intersection keeps the stored selection and is reported instead: an
+  // empty limit list means "no restriction" on save, so trimming it here would
+  // silently widen the key.
   useEffect(() => {
     if (!restrictedModels) return
     const allowed = new Set(restrictedModels)
@@ -259,6 +262,14 @@ export function OrganizationTokenFormDialog(
     // just loaded.
     const current = form.getValues('model_limits')
     const next = current.filter((model) => allowed.has(model))
+    if (next.length === 0 && current.length > 0) {
+      form.setError('model_limits', {
+        type: 'manual',
+        message: 'None of the selected models are available to this member',
+      })
+      return
+    }
+    form.clearErrors('model_limits')
     if (next.length === current.length) return
     form.setValue('model_limits', next)
   }, [restrictedModels, modelLimits, form])

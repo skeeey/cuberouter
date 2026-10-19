@@ -249,6 +249,64 @@ func TestUpdateTokenMemberModelAccess(t *testing.T) {
 	}
 }
 
+// TestUpdateTokenRevalidatesMemberModelLimitsOnlyWhenChanged 覆盖白名单收窄后的存量个人
+// 令牌：请求原样带回存量 limits（改名等无关编辑）时不该被拦，否则这把 Key 会永久无法
+// 修复；真正改动 limits 时仍按当前白名单拒绝。
+func TestUpdateTokenRevalidatesMemberModelLimitsOnlyWhenChanged(t *testing.T) {
+	updateRequest := func(token *model.Token, name string, modelLimits string) map[string]any {
+		return map[string]any{
+			"id":                   token.Id,
+			"name":                 name,
+			"status":               common.TokenStatusEnabled,
+			"expired_time":         -1,
+			"remain_quota":         100,
+			"unlimited_quota":      true,
+			"model_limits_enabled": true,
+			"model_limits":         modelLimits,
+			"group":                "default",
+		}
+	}
+
+	t.Run("unchanged limits pass after the allow list narrowed", func(t *testing.T) {
+		user := setupPersonalTokenModelAccessTest(t, `["allowed-model"]`)
+		translation := installTokenModelAccessTranslation(t)
+		token := seedToken(t, model.DB, user.Id, "stale-limits-rename", "stale-limits-rename-key")
+		require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", token.Id).
+			Updates(map[string]any{"model_limits_enabled": true, "model_limits": "stale-model"}).Error)
+
+		ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/",
+			updateRequest(token, "renamed-stale-limits", "stale-model"), user.Id)
+		UpdateToken(ctx)
+
+		response := decodeAPIResponse(t, recorder)
+		require.True(t, response.Success, response.Message)
+		assert.Empty(t, translation.key, "an unchanged-limit update must not consult the member allow list")
+		var stored model.Token
+		require.NoError(t, model.DB.First(&stored, token.Id).Error)
+		assert.Equal(t, "renamed-stale-limits", stored.Name)
+		assert.True(t, stored.ModelLimitsEnabled)
+		assert.Equal(t, "stale-model", stored.ModelLimits)
+	})
+
+	t.Run("changed limits outside the allow list are still rejected", func(t *testing.T) {
+		user := setupPersonalTokenModelAccessTest(t, `["allowed-model"]`)
+		translation := installTokenModelAccessTranslation(t)
+		token := seedToken(t, model.DB, user.Id, "stale-limits-change", "stale-limits-change-key")
+		require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", token.Id).
+			Updates(map[string]any{"model_limits_enabled": true, "model_limits": "stale-model"}).Error)
+
+		ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/",
+			updateRequest(token, "changed-limits", "denied-model"), user.Id)
+		UpdateToken(ctx)
+
+		response := decodeAPIResponse(t, recorder)
+		assertTokenModelAccessRejection(t, translation, response, "denied-model")
+		var stored model.Token
+		require.NoError(t, model.DB.First(&stored, token.Id).Error)
+		assert.Equal(t, "stale-model", stored.ModelLimits, "a rejected update must leave the stored limits untouched")
+	})
+}
+
 // TestUpdateTokenStatusOnlySkipsMemberModelAccess 覆盖仅改状态的更新路径：它在请求里带的
 // model limits 不会被写入，也就不该被成员白名单拦下（前端开关只发 id + status）。
 func TestUpdateTokenStatusOnlySkipsMemberModelAccess(t *testing.T) {

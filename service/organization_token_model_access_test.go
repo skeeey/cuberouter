@@ -199,6 +199,50 @@ func TestOrganizationTokenUpdateSkipsModelAccessCheckWhenLimitsUnchanged(t *test
 	assert.Equal(t, "stale-model", stored.ModelLimits)
 }
 
+// TestOrganizationTokenUpdateRechecksModelAccessWhenResponsibleChanges 覆盖换责任成员但
+// limits 原样带回的更新：收窄的是新责任成员的白名单，若只在 limits 变化时校验，就会把
+// Key 交给一个用不了这些模型的成员；校验必须把责任成员的变化也算作「需要重查」。
+func TestOrganizationTokenUpdateRechecksModelAccessWhenResponsibleChanges(t *testing.T) {
+	owner, memberA, organization := createOrganizationTokenTestOrg(t)
+	restrictMemberModelAccess(t, organization.Id, memberA.Id, `["allowed-model"]`)
+	memberB := createServiceTestUser(t, "org-token-member-b", common.RoleCommonUser)
+	require.NoError(t, model.DB.Create(&model.OrganizationMember{
+		OrganizationId: organization.Id,
+		UserId:         memberB.Id,
+		Role:           model.OrganizationRoleMember,
+		Status:         model.OrganizationMemberStatusActive,
+	}).Error)
+	restrictMemberModelAccess(t, organization.Id, memberB.Id, `["other-model"]`)
+
+	token, err := CreateOrganizationToken(owner.Id, organization.Id, OrganizationAccessModeWorkspace, OrganizationTokenRequest{
+		Name:               "handover-key",
+		ResponsibleUserId:  memberA.Id,
+		Visibility:         model.TokenVisibilityPrivate,
+		ExpiredTime:        -1,
+		ModelLimitsEnabled: true,
+		ModelLimits:        "allowed-model",
+	})
+	require.NoError(t, err)
+
+	_, err = UpdateOrganizationToken(owner.Id, organization.Id, OrganizationAccessModeWorkspace, token.Id, OrganizationTokenRequest{
+		Name:               token.Name,
+		Status:             common.TokenStatusEnabled,
+		ResponsibleUserId:  memberB.Id,
+		Visibility:         model.TokenVisibilityPrivate,
+		ExpiredTime:        -1,
+		ModelLimitsEnabled: true,
+		// Unchanged: the narrowing is in the new holder's allow list, not the limits.
+		ModelLimits: "allowed-model",
+	})
+
+	require.ErrorContains(t, err, "allowed-model")
+	var stored model.Token
+	require.NoError(t, model.DB.First(&stored, token.Id).Error)
+	assert.Equal(t, memberA.Id, stored.ResponsibleUserId, "a rejected hand-over must leave the holder untouched")
+	assert.Equal(t, "allowed-model", stored.ModelLimits, "a rejected hand-over must leave the stored limits untouched")
+	assert.Zero(t, countOrganizationAuditRows(t, organization.Id, organizationAuditActionTokenUpdate), "a rejected hand-over must not write an audit row")
+}
+
 // TestOrganizationTokenBatchCreateEnforcesResponsibleMemberModelAccess 覆盖批量建 Key 的同一
 // 校验：越界的整批拒绝且不落库，集内的照常建成。
 func TestOrganizationTokenBatchCreateEnforcesResponsibleMemberModelAccess(t *testing.T) {

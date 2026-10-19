@@ -240,6 +240,7 @@
     "No Organizations Found": "未找到組織",
     "No tasks in this range": "該時間範圍內沒有任務",
     "No usage in this period.": "該週期內沒有用量。",
+    "None of the selected models are available to this member": "所選模型均不在該成員的可用範圍內",
     "One entry per line: a domain, *.domain, or one exact address.": "每行一筆：一個網域、*.網域，或一個精確地址。",
     "One IP per line; leave empty for no limit": "每行一個 IP；留空表示不限制",
     "Only active owners and administrators can take over API keys.": "只有活躍的所有者和管理員可以接管 API Key。",

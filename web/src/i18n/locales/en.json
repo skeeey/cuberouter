@@ -240,6 +240,7 @@
     "No Organizations Found": "No Organizations Found",
     "No tasks in this range": "No tasks in this range",
     "No usage in this period.": "No usage in this period.",
+    "None of the selected models are available to this member": "None of the selected models are available to this member",
     "One entry per line: a domain, *.domain, or one exact address.": "One entry per line: a domain, *.domain, or one exact address.",
     "One IP per line; leave empty for no limit": "One IP per line; leave empty for no limit",
     "Only active owners and administrators can take over API keys.": "Only active owners and administrators can take over API keys.",

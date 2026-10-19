@@ -104,9 +104,11 @@ func GetPricing(c *gin.Context) {
 	// 元素——否则会串到其他用户的价目表。
 	if viewerId, ok := userId.(int); exists && ok {
 		if allow := model.GetUserModelAllowList(viewerId); allow != nil {
+			// 一次请求内只为整张价目表构建一次规范化集合。
+			memberAccess := model.BuildMemberModelAccessSet(allow)
 			allowedPricing := make([]model.Pricing, 0, len(pricing))
 			for _, item := range pricing {
-				if model.IsModelAllowedByMemberAccess(allow, item.ModelName) {
+				if memberAccess.Allows(item.ModelName) {
 					allowedPricing = append(allowedPricing, item)
 				}
 			}

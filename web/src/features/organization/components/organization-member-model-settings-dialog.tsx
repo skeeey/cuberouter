@@ -82,6 +82,15 @@ export function OrganizationMemberModelSettingsDialog(props: {
     member?.user_id,
     getAccountContextCacheKey(),
   ]
+  // The key token form reads the same allow-list under a shorter key — the
+  // account context is not part of it — so a save invalidates the shared prefix
+  // rather than only this dialog's exact entry.
+  const memberAccessSharedQueryKey = [
+    'organization-member-model-access',
+    surface,
+    props.organizationId,
+    member?.user_id,
+  ]
   const memberDiscountsQueryKey = [
     'organization-member-model-discounts',
     surface,
@@ -240,7 +249,7 @@ export function OrganizationMemberModelSettingsDialog(props: {
           models: storedAccess.models,
         })
         void queryClient.invalidateQueries({
-          queryKey: memberAccessQueryKey,
+          queryKey: memberAccessSharedQueryKey,
         })
       }
       if (props.canManageMemberDiscounts) {

@@ -66,7 +66,16 @@ func userModelAllowListCacheVersionKey(userId int) string {
 // cached, so a transient failure cannot pin a restricted user to unrestricted
 // until the cache TTL expires.
 func GetUserModelAllowList(userId int) []string {
-	if IsAdmin(userId) {
+	// The user auth cache carries the role and is published whenever it changes,
+	// so a warm cache answers without a database round trip. Only a cache failure
+	// falls back to the database; otherwise every relay request would pay for an
+	// IsAdmin query even when the allow-list entry itself is cached.
+	userCache, err := GetUserCache(userId)
+	if err == nil {
+		if userCache.Role >= common.RoleAdminUser {
+			return nil
+		}
+	} else if IsAdmin(userId) {
 		return nil
 	}
 	key := userModelAllowListCacheKey(userId)
@@ -223,34 +232,59 @@ return 1`
 	return result == 1, nil
 }
 
-// IsModelAllowedByMemberAccess reports whether modelName is allowed by an
-// effective member allow list. A nil list means no restriction. Entries and
-// the looked-up name both match through ratio_setting.FormatMatchingModelName,
-// so a normalized entry such as gpt-4-gizmo-* admits the concrete names it
-// covers.
-func IsModelAllowedByMemberAccess(allow []string, modelName string) bool {
+// MemberModelAccessSet is an effective member allow list in normalized form,
+// built once for repeated lookups over a batch of models. A nil set imposes no
+// restriction, matching a nil allow list.
+type MemberModelAccessSet struct {
+	allowed map[string]struct{}
+}
+
+// BuildMemberModelAccessSet normalizes an effective member allow list for
+// batched membership checks. A nil list yields a nil set, which admits every
+// model; callers that need to distinguish the unrestricted case must branch on
+// the list itself.
+func BuildMemberModelAccessSet(allow []string) *MemberModelAccessSet {
 	if allow == nil {
-		return true
+		return nil
 	}
 	allowed := make(map[string]struct{}, 2*len(allow))
 	for _, entry := range allow {
 		allowed[entry] = struct{}{}
 		allowed[ratio_setting.FormatMatchingModelName(entry)] = struct{}{}
 	}
-	_, ok := allowed[ratio_setting.FormatMatchingModelName(modelName)]
+	return &MemberModelAccessSet{allowed: allowed}
+}
+
+// Allows reports whether modelName is admitted by the set. Entries and the
+// looked-up name both match through ratio_setting.FormatMatchingModelName, so a
+// normalized entry such as gpt-4-gizmo-* admits the concrete names it covers. A
+// nil set admits everything.
+func (set *MemberModelAccessSet) Allows(modelName string) bool {
+	if set == nil {
+		return true
+	}
+	_, ok := set.allowed[ratio_setting.FormatMatchingModelName(modelName)]
 	return ok
+}
+
+// IsModelAllowedByMemberAccess reports whether modelName is allowed by an
+// effective member allow list. A nil list means no restriction. It is the
+// single-model form; batch callers build a MemberModelAccessSet once instead.
+func IsModelAllowedByMemberAccess(allow []string, modelName string) bool {
+	return BuildMemberModelAccessSet(allow).Allows(modelName)
 }
 
 // FilterModelsByMemberAccess returns the models admitted by an effective
 // member allow list, in their input order. A nil list passes models through
-// unchanged.
+// unchanged. The normalized set is built once for the whole batch.
 func FilterModelsByMemberAccess(allow []string, models []string) []string {
 	if allow == nil {
 		return models
 	}
+	set := BuildMemberModelAccessSet(allow)
 	filtered := make([]string, 0, len(models))
 	for _, modelName := range models {
-		if IsModelAllowedByMemberAccess(allow, modelName) {
+		if set.Allows(modelName) {
 			filtered = append(filtered, modelName)
 		}
 	}

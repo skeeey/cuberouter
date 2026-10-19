@@ -361,6 +361,30 @@ func TestGetUserModelAllowListCache(t *testing.T) {
 		require.Nil(t, GetUserModelAllowList(admin.Id))
 	})
 
+	t.Run("the cached role exempts an administrator without reading the database", func(t *testing.T) {
+		user := createUserModelAllowListTestUser(t, "allowlist-cache-role-admin", common.RoleCommonUser)
+		createUserModelAllowListTestMember(t, user.Id, 26, OrganizationMemberStatusActive, MarshalMemberModelAccess([]string{"a"}))
+		// The auth cache is the authority on the role once warm; a role change
+		// publishes it. Seed it as an administrator while the database row still
+		// reads common — a per-request database role lookup would wrongly
+		// restrict this user.
+		cached := *user
+		cached.Role = common.RoleAdminUser
+		require.NoError(t, populateUserCache(cached))
+
+		require.Nil(t, GetUserModelAllowList(user.Id))
+	})
+
+	t.Run("a cached non-admin role is not overridden by the database role", func(t *testing.T) {
+		admin := createUserModelAllowListTestUser(t, "allowlist-cache-role-member", common.RoleAdminUser)
+		createUserModelAllowListTestMember(t, admin.Id, 27, OrganizationMemberStatusActive, MarshalMemberModelAccess([]string{"a"}))
+		cached := *admin
+		cached.Role = common.RoleCommonUser
+		require.NoError(t, populateUserCache(cached))
+
+		assert.Equal(t, []string{"a"}, GetUserModelAllowList(admin.Id))
+	})
+
 	t.Run("refresh drops the entry and the next read refills it", func(t *testing.T) {
 		user := createUserModelAllowListTestUser(t, "allowlist-cache-refresh", common.RoleCommonUser)
 		member := createUserModelAllowListTestMember(t, user.Id, 25, OrganizationMemberStatusActive, MarshalMemberModelAccess([]string{"a"}))
