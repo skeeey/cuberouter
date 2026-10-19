@@ -122,7 +122,7 @@ describe('maskOrganizationTokenKey', () => {
 })
 
 describe('organizationTokenKeyPreview', () => {
-  test("prefers the mask the backend computed", () => {
+  test('prefers the mask the backend computed', () => {
     expect(
       organizationTokenKeyPreview({
         key: 'sk-abcdefghijklmnop',
@@ -132,9 +132,9 @@ describe('organizationTokenKeyPreview', () => {
   })
 
   test('masks the key itself when no preview came with it', () => {
-    expect(
-      organizationTokenKeyPreview({ key: 'sk-abcdefghijklmnop' })
-    ).toBe('sk-abcd**********mnop')
+    expect(organizationTokenKeyPreview({ key: 'sk-abcdefghijklmnop' })).toBe(
+      'sk-abcd**********mnop'
+    )
     expect(organizationTokenKeyPreview({ key: '' })).toBe('')
   })
 })
@@ -177,7 +177,11 @@ describe('getOrganizationTokenActionFlags', () => {
     currentUserId: 7,
     readOnly: false,
   }
-  const member = { canManageAllTokens: false, currentUserId: 7, readOnly: false }
+  const member = {
+    canManageAllTokens: false,
+    currentUserId: 7,
+    readOnly: false,
+  }
 
   test('an organization-wide manager may act on every key', () => {
     expect(getOrganizationTokenActionFlags(key, manager)).toEqual({
@@ -200,7 +204,10 @@ describe('getOrganizationTokenActionFlags', () => {
       canCopy: true,
     })
     expect(
-      getOrganizationTokenActionFlags({ ...key, responsible_user_id: 99 }, member)
+      getOrganizationTokenActionFlags(
+        { ...key, responsible_user_id: 99 },
+        member
+      )
     ).toEqual({ canEdit: true, canDelete: true, canCopy: true })
   })
 
@@ -262,9 +269,9 @@ describe('getOrganizationTokenActionFlags', () => {
   })
 
   test('there is nothing to copy when the secret is absent', () => {
-    expect(getOrganizationTokenActionFlags({ ...key, key: '' }, manager).canCopy).toBe(
-      false
-    )
+    expect(
+      getOrganizationTokenActionFlags({ ...key, key: '' }, manager).canCopy
+    ).toBe(false)
   })
 })
 
@@ -335,8 +342,34 @@ describe('organizationTokenErrorText', () => {
       )
     ).toBe('organization token limit reached')
     expect(
-      organizationTokenErrorText(new Error('offline'), 'Failed to save organization key')
+      organizationTokenErrorText(
+        new Error('offline'),
+        'Failed to save organization key'
+      )
     ).toBe('Failed to save organization key')
+  })
+
+  test('member and organization quota refusals have their own sentences', () => {
+    expect(
+      organizationTokenErrorText(
+        {
+          response: {
+            data: { code: 'insufficient_organization_member_quota' },
+          },
+        },
+        'fallback'
+      )
+    ).toBe(
+      'Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.'
+    )
+    expect(
+      organizationTokenErrorText(
+        {
+          response: { data: { code: 'insufficient_organization_quota' } },
+        },
+        'fallback'
+      )
+    ).toBe('The organization has no available quota.')
   })
 })
 

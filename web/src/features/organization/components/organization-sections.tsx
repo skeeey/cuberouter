@@ -129,6 +129,7 @@ export function OrganizationSections(props: OrganizationSectionsProps) {
           organizationGroup={organization.group ?? ''}
           canView={capabilities.can_view_organization_tokens}
           canManageAllTokens={capabilities.can_manage_all_tokens}
+          isPlatformAdministrator={actor.is_platform_admin}
           canCreate={!isPlatformSurface}
           currentUserId={actor.user_id}
           isOrganizationMember={actor.is_organization_member}

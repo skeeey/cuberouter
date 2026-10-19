@@ -50,6 +50,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { getUserModels } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { formatQuota } from '@/lib/format'
 
 import {
   batchCreateOrganizationTokens,
@@ -94,6 +95,8 @@ type OrganizationTokenFormDialogProps = {
   editing: OrganizationTokenRow | null
   /** The caller may choose the holder and publish a key. */
   canManageAllTokens: boolean
+  /** The caller is a platform administrator, even when the workspace role hides that. */
+  isPlatformAdministrator?: boolean
   currentUserId: number
   /**
    * Whether the caller holds a membership here. A platform administrator who
@@ -127,6 +130,11 @@ export function OrganizationTokenFormDialog(
 
   const editing = props.editing
   const isUpdate = editing !== null
+  // The backend exempts platform administrators from the member-only defaults
+  // even when their workspace role does not carry `CanManageAllTokens`; the
+  // form must not hide fields the server would accept.
+  const canConfigure =
+    props.canManageAllTokens || Boolean(props.isPlatformAdministrator)
 
   const form = useForm<OrganizationTokenFormValues>({
     resolver: zodResolver(organizationTokenFormSchema),
@@ -152,7 +160,7 @@ export function OrganizationTokenFormDialog(
   const { data: models } = useQuery({
     queryKey: ['user-models'],
     queryFn: getUserModels,
-    enabled: props.open,
+    enabled: props.open && canConfigure,
     staleTime: 0,
   })
 
@@ -203,24 +211,30 @@ export function OrganizationTokenFormDialog(
   // shows the previous one's numbers.
   useEffect(() => {
     if (!props.open) return
-    form.reset(
-      editing
-        ? transformOrganizationTokenToFormDefaults(editing)
-        : {
-            ...ORGANIZATION_TOKEN_FORM_DEFAULT_VALUES,
-            // A new key starts out held by whoever is creating it, which is
-            // what the backend would choose anyway — making it visible beats
-            // leaving the field blank and silently deciding it later.
-            responsible_user_id:
-              props.canManageAllTokens && props.isOrganizationMember
-                ? props.currentUserId
-                : undefined,
-            group: '',
-          }
-    )
+    const defaults: OrganizationTokenFormValues = editing
+      ? transformOrganizationTokenToFormDefaults(editing)
+      : {
+          ...ORGANIZATION_TOKEN_FORM_DEFAULT_VALUES,
+          // A new key starts out held by whoever is creating it, which is
+          // what the backend would choose anyway — making it visible beats
+          // leaving the field blank and silently deciding it later.
+          responsible_user_id:
+            props.canManageAllTokens && props.isOrganizationMember
+              ? props.currentUserId
+              : undefined,
+          group: '',
+        }
+    if (!canConfigure) {
+      // The expiry field is hidden for members, so a stored deadline in the
+      // past would make the invisible schema refinement reject every save.
+      // The backend preserves the stored value; leave the field empty here.
+      defaults.expired_time = undefined
+    }
+    form.reset(defaults)
   }, [
     props.open,
     editing,
+    canConfigure,
     props.canManageAllTokens,
     props.isOrganizationMember,
     props.currentUserId,
@@ -312,6 +326,26 @@ export function OrganizationTokenFormDialog(
     }
 
     const count = values.token_count ?? 1
+    if (!canConfigure) {
+      const result = await createOrganizationToken(props.organizationId, {
+        name: values.name.trim(),
+      })
+      if (!result.success) {
+        toast.error(result.message || t('Failed to create organization key'))
+        return
+      }
+      if (result.data) {
+        setCreated({
+          tokens: [result.data],
+          token_count: 1,
+          secret_available: Boolean(result.data.key),
+        })
+      }
+      toast.success(t('Organization key created'))
+      props.onOpenChange(false)
+      await props.onSaved()
+      return
+    }
     if (count > 1) {
       const result = await batchCreateOrganizationTokens(props.organizationId, {
         ...payload,
@@ -431,7 +465,7 @@ export function OrganizationTokenFormDialog(
                 )}
               />
 
-              {!isUpdate ? (
+              {!isUpdate && canConfigure ? (
                 <FormField
                   control={form.control}
                   name='token_count'
@@ -460,7 +494,9 @@ export function OrganizationTokenFormDialog(
                     </FormItem>
                   )}
                 />
-              ) : (
+              ) : null}
+
+              {isUpdate ? (
                 <div className='space-y-2'>
                   <div className='text-sm leading-none font-medium'>
                     {t('Owner')}
@@ -474,7 +510,7 @@ export function OrganizationTokenFormDialog(
                     )}
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
 
             {props.canManageAllTokens ? (
@@ -559,219 +595,262 @@ export function OrganizationTokenFormDialog(
               </div>
             ) : null}
 
-            <div className='space-y-4 rounded-lg border p-4'>
-              <FormField
-                control={form.control}
-                name='unlimited_quota'
-                render={({ field }) => (
-                  <FormItem className='flex flex-row items-start justify-between gap-4'>
-                    <div className='flex flex-col gap-0.5'>
-                      <FormLabel className='text-sm'>
-                        {t('Unlimited Quota')}
-                      </FormLabel>
-                      <FormDescription className='text-xs'>
-                        {t(
-                          'Usage is still limited by what the organization has left.'
-                        )}
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
+            {canConfigure ? (
+              <>
+                <div className='space-y-4 rounded-lg border p-4'>
+                  <FormField
+                    control={form.control}
+                    name='unlimited_quota'
+                    render={({ field }) => (
+                      <FormItem className='flex flex-row items-start justify-between gap-4'>
+                        <div className='flex flex-col gap-0.5'>
+                          <FormLabel className='text-sm'>
+                            {t('Unlimited Quota')}
+                          </FormLabel>
+                          <FormDescription className='text-xs'>
+                            {t(
+                              'Usage is still limited by what the organization has left.'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
 
-              {!unlimitedQuota ? (
+                  {!unlimitedQuota ? (
+                    <FormField
+                      control={form.control}
+                      name='remain_quota_dollars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Key quota limit')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              step='0.01'
+                              placeholder={t('Enter key quota limit')}
+                              onChange={(event) =>
+                                field.onChange(
+                                  Number.parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Limits what this one key may spend. The organization pays for whatever it does use.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ) : null}
+                </div>
+
                 <FormField
                   control={form.control}
-                  name='remain_quota_dollars'
+                  name='expired_time'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Key quota limit')}</FormLabel>
+                      <FormLabel>{t('Expiration Time')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type='number'
-                          min='0'
-                          step='0.01'
-                          placeholder={t('Enter key quota limit')}
-                          onChange={(event) =>
-                            field.onChange(
-                              Number.parseFloat(event.target.value) || 0
-                            )
-                          }
+                        <DateTimePicker
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder={t('Select expiration time')}
                         />
                       </FormControl>
+                      <div className='flex flex-wrap gap-1 pt-1'>
+                        {ORGANIZATION_TOKEN_EXPIRY_SHORTCUTS.map((shortcut) => (
+                          <Button
+                            key={shortcut.labelKey}
+                            type='button'
+                            variant='outline'
+                            size='xs'
+                            onClick={() =>
+                              field.onChange(
+                                shortcut.seconds === null
+                                  ? undefined
+                                  : new Date(
+                                      Date.now() + shortcut.seconds * 1000
+                                    )
+                              )
+                            }
+                          >
+                            {t(shortcut.labelKey)}
+                          </Button>
+                        ))}
+                      </div>
                       <FormDescription>
                         {t(
-                          'Limits what this one key may spend. The organization pays for whatever it does use.'
+                          'Left empty, the key never expires. It still stops working if the responsible member is disabled.'
                         )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              ) : null}
-            </div>
 
-            <FormField
-              control={form.control}
-              name='expired_time'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Expiration Time')}</FormLabel>
-                  <FormControl>
-                    <DateTimePicker
-                      value={field.value}
-                      onChange={field.onChange}
-                      placeholder={t('Select expiration time')}
-                    />
-                  </FormControl>
-                  <div className='flex flex-wrap gap-1 pt-1'>
-                    {ORGANIZATION_TOKEN_EXPIRY_SHORTCUTS.map((shortcut) => (
-                      <Button
-                        key={shortcut.labelKey}
-                        type='button'
-                        variant='outline'
-                        size='xs'
-                        onClick={() =>
+                <FormField
+                  control={form.control}
+                  name='group'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Token group')}</FormLabel>
+                      <Select
+                        items={groupItems}
+                        value={field.value || MEMBER_OPTION_NONE}
+                        onValueChange={(value) =>
                           field.onChange(
-                            shortcut.seconds === null
-                              ? undefined
-                              : new Date(Date.now() + shortcut.seconds * 1000)
+                            value === MEMBER_OPTION_NONE || value === null
+                              ? ''
+                              : value
                           )
                         }
                       >
-                        {t(shortcut.labelKey)}
-                      </Button>
-                    ))}
-                  </div>
-                  <FormDescription>
-                    {t(
-                      'Left empty, the key never expires. It still stops working if the responsible member is disabled.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='group'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Token group')}</FormLabel>
-                  <Select
-                    items={groupItems}
-                    value={field.value || MEMBER_OPTION_NONE}
-                    onValueChange={(value) =>
-                      field.onChange(
-                        value === MEMBER_OPTION_NONE || value === null
-                          ? ''
-                          : value
-                      )
-                    }
-                  >
-                    <FormControl>
-                      <SelectTrigger className='w-full'>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {groupItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    {t('Token group, defaults to the organization base group')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {group === 'auto' ? (
-              <FormField
-                control={form.control}
-                name='cross_group_retry'
-                render={({ field }) => (
-                  <FormItem className='flex flex-row items-start justify-between gap-4'>
-                    <div className='flex flex-col gap-0.5'>
-                      <FormLabel className='text-sm'>
-                        {t('Cross-group retry')}
-                      </FormLabel>
-                      <FormDescription className='text-xs'>
+                        <FormControl>
+                          <SelectTrigger className='w-full'>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {groupItems.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
                         {t(
-                          'Retry a failed request on another group in the Auto pool.'
+                          'Token group, defaults to the organization base group'
                         )}
                       </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {group === 'auto' ? (
+                  <FormField
+                    control={form.control}
+                    name='cross_group_retry'
+                    render={({ field }) => (
+                      <FormItem className='flex flex-row items-start justify-between gap-4'>
+                        <div className='flex flex-col gap-0.5'>
+                          <FormLabel className='text-sm'>
+                            {t('Cross-group retry')}
+                          </FormLabel>
+                          <FormDescription className='text-xs'>
+                            {t(
+                              'Retry a failed request on another group in the Auto pool.'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+
+                <FormField
+                  control={form.control}
+                  name='model_limits'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Model Limits')}</FormLabel>
+                      <FormControl>
+                        <MultiSelect
+                          options={modelOptions.map((model) => ({
+                            label: model,
+                            value: model,
+                          }))}
+                          selected={field.value}
+                          onChange={field.onChange}
+                          placeholder={t(
+                            'Select allowed models; leave empty for no limit'
+                          )}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Limit which models can be used with this key')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='allow_ips'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('IP limits')}</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className='min-h-20 resize-none'
+                          rows={3}
+                          placeholder={t(
+                            'One IP per line; leave empty for no limit'
+                          )}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
             ) : null}
 
-            <FormField
-              control={form.control}
-              name='model_limits'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Model Limits')}</FormLabel>
-                  <FormControl>
-                    <MultiSelect
-                      options={modelOptions.map((model) => ({
-                        label: model,
-                        value: model,
-                      }))}
-                      selected={field.value}
-                      onChange={field.onChange}
-                      placeholder={t(
-                        'Select allowed models; leave empty for no limit'
-                      )}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Limit which models can be used with this key')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!canConfigure && !isUpdate ? (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  "Quota, expiration and model access are set by the organization's policy."
+                )}
+              </p>
+            ) : null}
 
-            <FormField
-              control={form.control}
-              name='allow_ips'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('IP limits')}</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      className='min-h-20 resize-none'
-                      rows={3}
-                      placeholder={t(
-                        'One IP per line; leave empty for no limit'
-                      )}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!canConfigure && isUpdate && editing ? (
+              <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm'>
+                <dt className='text-muted-foreground'>{t('Quota')}</dt>
+                <dd>
+                  {editing.unlimited_quota
+                    ? t('Unlimited')
+                    : formatQuota(editing.remain_quota)}
+                </dd>
+                <dt className='text-muted-foreground'>
+                  {t('Expiration Time')}
+                </dt>
+                <dd>
+                  {editing.expired_time > 0
+                    ? new Date(editing.expired_time * 1000).toLocaleString()
+                    : t('Never expires')}
+                </dd>
+                <dt className='text-muted-foreground'>{t('Model Limits')}</dt>
+                <dd>
+                  {editing.model_limits_enabled && editing.model_limits
+                    ? editing.model_limits
+                    : t('Unlimited')}
+                </dd>
+                <dt className='text-muted-foreground'>{t('Token group')}</dt>
+                <dd>{editing.group || t("The organization's group")}</dd>
+              </dl>
+            ) : null}
           </form>
         </Form>
       </Dialog>
@@ -848,6 +927,19 @@ function CreatedTokensDialog(props: {
             </span>
           </div>
           <OrganizationTokenKeyCell token={token} canCopy={secretAvailable} />
+          <div className='text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs'>
+            <span>
+              {t('Quota')}:{' '}
+              {token.unlimited_quota
+                ? t('Unlimited')
+                : formatQuota(token.remain_quota)}
+            </span>
+            <span>
+              {token.expired_time > 0
+                ? new Date(token.expired_time * 1000).toLocaleString()
+                : t('Never expires')}
+            </span>
+          </div>
         </div>
       ))}
       <p className='text-muted-foreground pt-2 text-xs'>

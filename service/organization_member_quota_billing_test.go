@@ -42,14 +42,11 @@ func setMemberQuotaBillingLimit(t *testing.T, organizationId, userId, limit int)
 		Update("quota_limit", limit).Error)
 }
 
-// createMemberQuotaBillingToken 建一把组织 Key，责任人由调用方指定。
-func createMemberQuotaBillingToken(t *testing.T, operatorUserId, organizationId, responsibleUserId int) *model.Token {
+// createMemberQuotaBillingToken 建一把组织 Key，创建人和责任人由调用方指定。
+func createMemberQuotaBillingToken(t *testing.T, organization *model.Organization, creator, responsible model.User) *model.Token {
 	t.Helper()
-	token, err := CreateOrganizationToken(operatorUserId, organizationId, OrganizationAccessModeWorkspace, OrganizationTokenRequest{
-		Name:              "member-quota-billing-key",
-		ExpiredTime:       -1,
-		RemainQuota:       1000,
-		ResponsibleUserId: responsibleUserId,
+	token, err := insertOrganizationTokenAsForTest(t, organization, creator, responsible, OrganizationTokenRequest{
+		Name: "member-quota-billing-key", ExpiredTime: -1, RemainQuota: 1000,
 	})
 	require.NoError(t, err)
 	return token
@@ -58,7 +55,7 @@ func createMemberQuotaBillingToken(t *testing.T, operatorUserId, organizationId,
 func TestOrganizationMemberQuotaBillingFundingIsStrict(t *testing.T) {
 	_, member, organization := createOrganizationTokenTestOrg(t)
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
-	token := createMemberQuotaBillingToken(t, member.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, member, member)
 
 	first := organizationBillingRelayInfo(token, organization.Id)
 	first.RequestId = "member-quota-funding-first"
@@ -92,7 +89,7 @@ func TestOrganizationMemberQuotaBillingFundingIsStrict(t *testing.T) {
 func TestOrganizationMemberQuotaBillingSettlementMayExceedCap(t *testing.T) {
 	_, member, organization := createOrganizationTokenTestOrg(t)
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
-	token := createMemberQuotaBillingToken(t, member.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, member, member)
 
 	relayInfo := organizationBillingRelayInfo(token, organization.Id)
 	relayInfo.RequestId = "member-quota-settle-session"
@@ -114,7 +111,7 @@ func TestOrganizationMemberQuotaBillingSettlementMayExceedCap(t *testing.T) {
 func TestOrganizationMemberQuotaBillingReserveMoreMayExceedCap(t *testing.T) {
 	_, member, organization := createOrganizationTokenTestOrg(t)
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
-	token := createMemberQuotaBillingToken(t, member.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, member, member)
 
 	relayInfo := organizationBillingRelayInfo(token, organization.Id)
 	relayInfo.RequestId = "member-quota-reserve-session"
@@ -135,7 +132,7 @@ func TestOrganizationMemberQuotaBillingReserveMoreMayExceedCap(t *testing.T) {
 func TestOrganizationMemberQuotaBillingRefundClampsAtZero(t *testing.T) {
 	_, member, organization := createOrganizationTokenTestOrg(t)
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
-	token := createMemberQuotaBillingToken(t, member.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, member, member)
 
 	relayInfo := organizationBillingRelayInfo(token, organization.Id)
 	relayInfo.RequestId = "member-quota-refund-session"
@@ -162,7 +159,7 @@ func TestOrganizationMemberQuotaBillingOwnerIsExempt(t *testing.T) {
 	// owner 行上存一个很小的上限：owner 豁免按 organization.owner_user_id 动态判定，
 	// 不看 quota_limit 是否清零。
 	setMemberQuotaBillingLimit(t, organization.Id, owner.Id, 10)
-	token := createMemberQuotaBillingToken(t, owner.Id, organization.Id, owner.Id)
+	token := createMemberQuotaBillingToken(t, organization, owner, owner)
 
 	relayInfo := organizationBillingRelayInfo(token, organization.Id)
 	relayInfo.RequestId = "member-quota-owner-session"
@@ -179,7 +176,7 @@ func TestOrganizationMemberQuotaBillingCountsResponsibleUserOnly(t *testing.T) {
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
 
 	// 操作人/创建人是 admin，责任成员是 member：计数只跟责任成员走。
-	token := createMemberQuotaBillingToken(t, admin.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, admin, member)
 
 	relayInfo := organizationBillingRelayInfo(token, organization.Id)
 	relayInfo.RequestId = "member-quota-attribution-session"
@@ -196,7 +193,7 @@ func TestOrganizationMemberQuotaBillingCountsResponsibleUserOnly(t *testing.T) {
 func TestOrganizationMemberQuotaBillingConcurrentFundingDoesNotExceedCap(t *testing.T) {
 	_, member, organization := createOrganizationTokenTestOrg(t)
 	setMemberQuotaBillingLimit(t, organization.Id, member.Id, 100)
-	token := createMemberQuotaBillingToken(t, member.Id, organization.Id, member.Id)
+	token := createMemberQuotaBillingToken(t, organization, member, member)
 
 	start := make(chan struct{})
 	errs := make([]error, 2)

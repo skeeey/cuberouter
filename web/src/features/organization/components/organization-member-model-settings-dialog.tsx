@@ -361,6 +361,11 @@ export function OrganizationMemberModelSettingsDialog(props: {
               "Counts this member's organization consumption only; personal wallet usage is not included."
             )}
           </p>
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap.'
+            )}
+          </p>
         </div>
 
         <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm'>

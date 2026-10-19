@@ -291,6 +291,7 @@
     "Quota must be a number": "Quota must be a number",
     "Quota must be a whole number": "Quota must be a whole number",
     "Quota units, worth {{amount}}.": "Quota units, worth {{amount}}.",
+    "Quota, expiration and model access are set by the organization's policy.": "Quota, expiration and model access are set by the organization's policy.",
     "Quota, traffic and model usage for the whole organization.": "Quota, traffic and model usage for the whole organization.",
     "Quota: {{before}} to {{after}}": "Quota: {{before}} to {{after}}",
     "Reason is required": "Reason is required",
@@ -357,6 +358,7 @@
     "The most expensive month in this range.": "The most expensive month in this range.",
     "The name must be unique across all organizations.": "The name must be unique across all organizations.",
     "The organization does not have enough quota for this request.": "The organization does not have enough quota for this request.",
+    "The organization has no available quota.": "The organization has no available quota.",
     "The organization is settling another request. Try again in a moment.": "The organization is settling another request. Try again in a moment.",
     "The organization was saved, but the quota adjustment failed": "The organization was saved, but the quota adjustment failed",
     "The organization's group": "The organization's group",
@@ -6148,6 +6150,8 @@
     "Set the total this member may consume inside the organization. Leave it empty for no limit.": "Set the total this member may consume inside the organization. Leave it empty for no limit.",
     "Limit": "Limit",
     "Remaining allocatable": "Remaining allocatable",
-    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another."
+    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.",
+    "Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.": "Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.",
+    "Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap.": "Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap."
   }
 }

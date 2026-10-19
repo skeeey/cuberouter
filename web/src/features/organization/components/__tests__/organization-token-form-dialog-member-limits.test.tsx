@@ -371,23 +371,20 @@ test('opens a second key on its own stored limits, not the previous edit', async
   await waitFor(() => expect(selectedModels()).toEqual(['m2']))
 })
 
-test('does not read a member allow-list for a member editing their own key', async () => {
+test('does not read a member allow-list or expose model limits for a member editing their own key', async () => {
   getMemberAccessMock.mockResolvedValue({
     access: RESTRICTED_ACCESS,
     models: OPERATOR_MODELS,
   })
   renderDialog(editedKey(), { canManageAllTokens: false })
 
-  await openModelList()
+  // A member has no administrator's view of a member allow-list and cannot
+  // change the key's model limits; the stored value is shown read-only.
+  expect(
+    screen.queryByRole('combobox', { name: MODEL_PLACEHOLDER })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText('m1,m3')).toBeInTheDocument()
 
-  // The picker keeps the operator's models, m3 included: nothing narrowed it.
-  expect(await screen.findByRole('option', { name: 'm3' })).toBeInTheDocument()
-  expect(screen.getByRole('option', { name: 'm1' })).toBeInTheDocument()
-  expect(screen.getByRole('option', { name: 'm2' })).toBeInTheDocument()
-  expect(selectedModels()).toEqual(['m1', 'm3'])
-
-  // A member has no administrator's view of a member allow-list; the backend
-  // enforces the same restriction on save, so the read is never attempted.
   await act(async () => undefined)
   expect(getMemberAccessMock).not.toHaveBeenCalled()
 })

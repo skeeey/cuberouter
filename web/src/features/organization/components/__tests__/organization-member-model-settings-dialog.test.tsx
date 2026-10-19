@@ -906,6 +906,17 @@ describe('organization member quota block', () => {
     ).toBeInTheDocument()
   })
 
+  test('explains the default quota for member-created keys', async () => {
+    renderSection(true, false, true)
+    await openSettingsDialog()
+
+    expect(
+      screen.getByText(
+        'Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap.'
+      )
+    ).toBeInTheDocument()
+  })
+
   test('saves a whole dollar amount as literal quota units and shows it unchanged', async () => {
     renderSection(true, false, true)
     await openSettingsDialog()

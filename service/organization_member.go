@@ -957,7 +957,7 @@ func transferOrganizationPublicKeysWithTx(tx *gorm.DB, organization *model.Organ
 	if toUserId <= 0 || toUserId == fromUserId {
 		return nil, organizationOperationBlockedError("active transfer target required")
 	}
-	if err := ensureOrganizationTokenResponsibleUserWithTx(tx, organization, model.TokenVisibilityPublic, toUserId); err != nil {
+	if _, err := ensureOrganizationTokenResponsibleUserWithTx(tx, organization, model.TokenVisibilityPublic, toUserId); err != nil {
 		return nil, organizationOperationBlockedError("active transfer target required")
 	}
 

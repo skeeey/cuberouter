@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { t } from 'i18next'
+
 import type { StatusVariant } from '@/components/status-badge'
 
 import type { OrganizationTokenRow } from '../types'
@@ -74,7 +76,10 @@ export const ORGANIZATION_TOKEN_STATUS_FILTER_OPTIONS = [
   ORGANIZATION_TOKEN_STATUS.DISABLED,
   ORGANIZATION_TOKEN_STATUS.EXPIRED,
   ORGANIZATION_TOKEN_STATUS.EXHAUSTED,
-].map((value) => ({ value: String(value), labelKey: organizationTokenStatusMeta(value).labelKey }))
+].map((value) => ({
+  value: String(value),
+  labelKey: organizationTokenStatusMeta(value).labelKey,
+}))
 
 // ============================================================================
 // Visibility
@@ -285,7 +290,9 @@ export type OrganizationTokenApiError = {
 }
 
 /** The parameter is `unknown` because that is what a caught error is. */
-function tokenErrorBody(error: unknown): OrganizationTokenErrorBody | undefined {
+function tokenErrorBody(
+  error: unknown
+): OrganizationTokenErrorBody | undefined {
   return (error as OrganizationTokenApiError | null | undefined)?.response?.data
 }
 
@@ -303,10 +310,15 @@ const ORGANIZATION_TOKEN_ERROR_MESSAGE_KEYS: Record<string, string> = {
     'The responsible user for this key is disabled by the platform. Enable the user before enabling the key.',
   organization_token_enable_forbidden:
     'This key was disabled by a higher-privilege administrator. Your account cannot enable it.',
+  insufficient_organization_member_quota:
+    'Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.',
+  insufficient_organization_quota: 'The organization has no available quota.',
 }
 
 /** `null` when the refusal is not one this mapping knows. */
-export function organizationTokenErrorMessageKey(error: unknown): string | null {
+export function organizationTokenErrorMessageKey(
+  error: unknown
+): string | null {
   const code = tokenErrorBody(error)?.code
   if (!code) return null
   return ORGANIZATION_TOKEN_ERROR_MESSAGE_KEYS[code] ?? null
@@ -321,6 +333,6 @@ export function organizationTokenErrorText(
   fallback: string
 ): string {
   const specific = organizationTokenErrorMessageKey(error)
-  if (specific) return specific
+  if (specific) return t(specific)
   return tokenErrorBody(error)?.message || fallback
 }

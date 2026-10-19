@@ -291,6 +291,7 @@
     "Quota must be a number": "額度必須是數字",
     "Quota must be a whole number": "額度必須是整數",
     "Quota units, worth {{amount}}.": "額度單位，折合 {{amount}}。",
+    "Quota, expiration and model access are set by the organization's policy.": "Quota, expiration and model access are set by the organization's policy.",
     "Quota, traffic and model usage for the whole organization.": "整個組織的額度、流量和模型用量。",
     "Quota: {{before}} to {{after}}": "額度：{{before}} → {{after}}",
     "Reason is required": "必須填寫原因",
@@ -357,6 +358,7 @@
     "The most expensive month in this range.": "該時間範圍內支出最高的月份。",
     "The name must be unique across all organizations.": "名稱在所有組織中必須唯一。",
     "The organization does not have enough quota for this request.": "該組織額度不足，無法完成此請求。",
+    "The organization has no available quota.": "The organization has no available quota.",
     "The organization is settling another request. Try again in a moment.": "該組織正在結算另一個請求。請稍後重試。",
     "The organization was saved, but the quota adjustment failed": "組織已儲存，但額度調整失敗",
     "The organization's group": "組織分組",
@@ -6148,6 +6150,8 @@
     "Set the total this member may consume inside the organization. Leave it empty for no limit.": "設定該成員在組織內的累計消費上限，留空表示不限制。",
     "Limit": "上限",
     "Remaining allocatable": "可分配餘額",
-    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "成員配額上限總和已超過組織配額。請先調低成員上限或提高組織配額，再設定新的上限。"
+    "Member quota limits exceed the organization quota. Lower a member's limit or raise the organization quota before setting another.": "成員配額上限總和已超過組織配額。請先調低成員上限或提高組織配額，再設定新的上限。",
+    "Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.": "Member quota is exhausted. Ask an organization administrator to raise it before creating new keys.",
+    "Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap.": "Member-created keys use the remaining member quota, or 1% of the organization quota when no limit is set. A set member quota caps cumulative consumption across keys; the 1% default is a per-key cap."
   }
 }
