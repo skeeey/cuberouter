@@ -61,11 +61,11 @@ const (
 
 var (
 	// 变量而非常量：测试需要压缩轮询间隔。
-	yikeInitialPollDelay = 2 * time.Second
-	yikePollInterval     = 5 * time.Second
-	yikePollMaxAttempts  = 60
-	yikePollTimeout      = 10 * time.Minute
-	yikePollClient       = &http.Client{Timeout: 60 * time.Second}
+	yikeInitialPollDelay   = 2 * time.Second
+	yikePollInterval       = 5 * time.Second
+	yikePollMaxAttempts    = 60
+	yikePollTimeout        = 10 * time.Minute
+	yikePollRequestTimeout = 60 * time.Second
 )
 
 func isYikeBaseURL(baseURL string) bool {
@@ -104,6 +104,11 @@ func convertYikeImageRequest(info *relaycommon.RelayInfo, request dto.ImageReque
 	prompt := strings.TrimSpace(request.Prompt)
 	if prompt == "" {
 		return nil, fmt.Errorf("prompt is required")
+	}
+	// Yike 只返回 OSS 签名 URL；b64_json 需要网关下载再编码，当前不支持，
+	// 在提交任务前拒绝，避免上游已出图却返回不可用的响应。
+	if responseFormat := strings.TrimSpace(request.ResponseFormat); responseFormat != "" && responseFormat != "url" {
+		return nil, fmt.Errorf("response_format %q is not supported for Yike; use \"url\"", responseFormat)
 	}
 
 	var options yikeImageOptions
@@ -288,7 +293,13 @@ func yikeImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rel
 		return types.NewError(fmt.Errorf("yike response did not contain JobId"), types.ErrorCodeBadResponse), nil
 	}
 
-	job, _, err := waitYikeImageJob(c, a.yikeBaseURL, info.ApiKey, submit.JobId)
+	pollClient, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	if err != nil {
+		return types.NewError(fmt.Errorf("create Yike poll http client failed: %w", err), types.ErrorCodeDoRequestFailed), nil
+	}
+	client := *pollClient
+	client.Timeout = yikePollRequestTimeout
+	job, _, err := waitYikeImageJob(c, &client, a.yikeBaseURL, info.ApiKey, submit.JobId)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponse), nil
 	}
@@ -331,7 +342,10 @@ func yikeImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rel
 	return nil, &dto.Usage{}
 }
 
-func waitYikeImageJob(c *gin.Context, baseURL, apiKey, jobId string) (*yikeImageJob, []byte, error) {
+func waitYikeImageJob(c *gin.Context, client *http.Client, baseURL, apiKey, jobId string) (*yikeImageJob, []byte, error) {
+	// 与 ali.asyncTaskWait 一致：非流式图片请求不跟随客户端断开取消轮询。
+	// 上游任务已提交并计费，提前退出会退款却拿不到结果；总时长由
+	// yikePollTimeout 兜底。
 	time.Sleep(yikeInitialPollDelay)
 
 	var lastBody []byte
@@ -341,7 +355,7 @@ func waitYikeImageJob(c *gin.Context, baseURL, apiKey, jobId string) (*yikeImage
 		if time.Now().After(deadline) {
 			break
 		}
-		job, body, err := fetchYikeImageJob(baseURL, apiKey, jobId)
+		job, body, err := fetchYikeImageJob(client, baseURL, apiKey, jobId)
 		lastBody = body
 		if err != nil {
 			lastErr = err
@@ -371,7 +385,7 @@ func waitYikeImageJob(c *gin.Context, baseURL, apiKey, jobId string) (*yikeImage
 	return nil, lastBody, lastErr
 }
 
-func fetchYikeImageJob(baseURL, apiKey, jobId string) (*yikeImageJob, []byte, error) {
+func fetchYikeImageJob(client *http.Client, baseURL, apiKey, jobId string) (*yikeImageJob, []byte, error) {
 	query := url.Values{}
 	query.Set("Action", yikeGetImageAction)
 	query.Set("Version", yikeImageAPIVersion)
@@ -390,7 +404,7 @@ func fetchYikeImageJob(baseURL, apiKey, jobId string) (*yikeImageJob, []byte, er
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := yikePollClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}

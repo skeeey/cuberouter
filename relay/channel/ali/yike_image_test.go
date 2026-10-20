@@ -109,6 +109,18 @@ func TestConvertYikeImageRequest(t *testing.T) {
 			wantAspect: "16:9",
 		},
 		{
+			name:       "url response format accepted",
+			request:    dto.ImageRequest{Prompt: "一只猫", ResponseFormat: "url"},
+			wantN:      "1",
+			wantRes:    "1K",
+			wantAspect: "1:1",
+		},
+		{
+			name:    "b64_json response format rejected",
+			request: dto.ImageRequest{Prompt: "一只猫", ResponseFormat: "b64_json"},
+			wantErr: "response_format",
+		},
+		{
 			name: "parameters override",
 			request: dto.ImageRequest{
 				Prompt: "一只猫",
