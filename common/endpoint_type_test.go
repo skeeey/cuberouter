@@ -145,4 +145,7 @@ func TestAliChannelVideoTaskEndpointTypes(t *testing.T) {
 
 	endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeAli, "deepseek-v4.1-flash-a")
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, endpointTypes)
+
+	endpointTypes = GetEndpointTypesByChannelType(constant.ChannelTypeAli, "o3-pro")
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}, endpointTypes)
 }
