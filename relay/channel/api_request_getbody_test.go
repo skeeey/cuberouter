@@ -592,3 +592,40 @@ func TestUpstreamGetBody_HTTP2CannotRetryWithoutGetBody(t *testing.T) {
 	require.Len(t, srv.attemptBodies, 1)
 	assert.Equal(t, payload, srv.attemptBodies[0])
 }
+
+// TestDoTaskApiRequest_NilBodyDoesNotPanic guards the bodyless task upstream
+// contract: RPC-style task APIs (e.g. Yike) submit with all parameters in the
+// URL and no request body. http.NewRequest leaves req.Body nil for a nil
+// reader, so the shared response cleanup must tolerate a missing body.
+func TestDoTaskApiRequest_NilBodyDoesNotPanic(t *testing.T) {
+	service.InitHttpClient()
+
+	received := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		received <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	adaptor := &stubTaskAdaptor{baseURL: server.URL}
+
+	require.NotPanics(t, func() {
+		resp, err := DoTaskApiRequest(adaptor, ctx, info, nil)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		_ = resp.Body.Close()
+	})
+
+	select {
+	case <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream did not receive the bodyless request")
+	}
+}
