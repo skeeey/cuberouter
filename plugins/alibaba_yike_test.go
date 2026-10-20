@@ -427,10 +427,12 @@ func TestAlibabaYikeSizeMatchesBillingTier(t *testing.T) {
 	})
 }
 
-func TestAlibabaYikeOwnsStationModelsWithoutAstraFlowNameCollision(t *testing.T) {
+func TestAlibabaYikeDoesNotHardcodeStationModels(t *testing.T) {
 	plugin := loadAlibabaPlugin(t)
-	assert.Contains(t, plugin.Meta.Models, "seedance-2.0-a")
-	assert.Contains(t, plugin.Meta.Models, "seedance-2.5-a")
+	// 站点模型名与上游映射都来自渠道 models/model_mapping；插件只按 base_url
+	// 主机分流，上游模型取 ctx.upstreamModel，不在代码里写死站点名。
+	assert.NotContains(t, plugin.Meta.Models, "seedance-2.0-a")
+	assert.NotContains(t, plugin.Meta.Models, "seedance-2.5-a")
 	assert.NotContains(t, plugin.Meta.Models, "wan3.0-video")
 	assert.NotContains(t, plugin.Meta.Models, "wan3.0-video-prime")
 }

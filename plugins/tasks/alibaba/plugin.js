@@ -19,10 +19,6 @@ export const meta = {
     "wan2.2-i2v-plus",
     "wanx2.1-i2v-plus",
     "wanx2.1-i2v-turbo",
-    // 万镜一刻上游模型经渠道 model_mapping 映射为站点名；插件按站点名持有
-    // 模型，避免与星图渠道的 wan3.0-video（Go 适配器）同名冲突。
-    "seedance-2.0-a",
-    "seedance-2.5-a",
   ],
   fetchMode: "per_task",
   usageSchema: {
