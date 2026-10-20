@@ -36,6 +36,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,18 @@ func TestConvertYikeImageRequestModelFallsBackToRequestModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "wan2.7-image-a", query.Get("Model"))
+}
+
+func TestYikeValidationErrorIsBadRequest(t *testing.T) {
+	_, err := convertYikeImageRequest(&relaycommon.RelayInfo{}, dto.ImageRequest{
+		Prompt:         "一只猫",
+		ResponseFormat: "b64_json",
+	})
+	require.Error(t, err)
+	var apiErr *types.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeInvalidRequest, apiErr.GetErrorCode())
 }
 
 func TestYikeClientTokenIsStablePerRequest(t *testing.T) {

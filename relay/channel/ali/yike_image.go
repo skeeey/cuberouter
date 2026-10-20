@@ -100,27 +100,33 @@ type yikeImageOptions struct {
 	PromptExtend *bool  `json:"prompt_extend"`
 }
 
+// yikeInvalidRequest 把客户端参数错误标记为 400；否则 ImageHelper 会把
+// ConvertImageRequest 返回的普通 error 统一包成 500 convert_request_failed。
+func yikeInvalidRequest(err error) error {
+	return types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+}
+
 func convertYikeImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequest) (url.Values, error) {
 	prompt := strings.TrimSpace(request.Prompt)
 	if prompt == "" {
-		return nil, fmt.Errorf("prompt is required")
+		return nil, yikeInvalidRequest(fmt.Errorf("prompt is required"))
 	}
 	// Yike 只返回 OSS 签名 URL；b64_json 需要网关下载再编码，当前不支持，
 	// 在提交任务前拒绝，避免上游已出图却返回不可用的响应。
 	if responseFormat := strings.TrimSpace(request.ResponseFormat); responseFormat != "" && responseFormat != "url" {
-		return nil, fmt.Errorf("response_format %q is not supported for Yike; use \"url\"", responseFormat)
+		return nil, yikeInvalidRequest(fmt.Errorf("response_format %q is not supported for Yike; use \"url\"", responseFormat))
 	}
 
 	var options yikeImageOptions
 	if raw, ok := request.Extra["parameters"]; ok {
 		if err := common.Unmarshal(raw, &options); err != nil {
-			return nil, fmt.Errorf("invalid parameters field: %w", err)
+			return nil, yikeInvalidRequest(fmt.Errorf("invalid parameters field: %w", err))
 		}
 	}
 
 	n, err := yikeImageCount(request, options)
 	if err != nil {
-		return nil, err
+		return nil, yikeInvalidRequest(err)
 	}
 
 	resolution := strings.ToUpper(strings.TrimSpace(options.Resolution))
@@ -130,7 +136,7 @@ func convertYikeImageRequest(info *relaycommon.RelayInfo, request dto.ImageReque
 	switch resolution {
 	case "1K", "2K", "4K":
 	default:
-		return nil, fmt.Errorf("resolution must be one of 1K, 2K, 4K")
+		return nil, yikeInvalidRequest(fmt.Errorf("resolution must be one of 1K, 2K, 4K"))
 	}
 
 	aspectRatio := strings.TrimSpace(options.AspectRatio)
@@ -144,7 +150,7 @@ func convertYikeImageRequest(info *relaycommon.RelayInfo, request dto.ImageReque
 	switch aspectRatio {
 	case "16:9", "9:16", "4:3", "3:4", "1:1", "21:9":
 	default:
-		return nil, fmt.Errorf("aspect_ratio must be one of 16:9, 9:16, 4:3, 3:4, 1:1, 21:9")
+		return nil, yikeInvalidRequest(fmt.Errorf("aspect_ratio must be one of 16:9, 9:16, 4:3, 3:4, 1:1, 21:9"))
 	}
 
 	model := strings.TrimSpace(request.Model)
@@ -154,7 +160,7 @@ func convertYikeImageRequest(info *relaycommon.RelayInfo, request dto.ImageReque
 		}
 	}
 	if model == "" {
-		return nil, fmt.Errorf("model is required")
+		return nil, yikeInvalidRequest(fmt.Errorf("model is required"))
 	}
 
 	inputJSON, err := common.Marshal(struct {

@@ -137,7 +137,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			}
 		case constant.RelayModeImagesEdits:
 			if a.isYike {
-				return "", fmt.Errorf("yike image editing is not supported")
+				return "", yikeInvalidRequest(fmt.Errorf("yike image editing is not supported"))
 			} else if isOldWanModel(info.UpstreamModelName) {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/image2image/image-synthesis", info.ChannelBaseUrl)
 			} else if isWanModel(info.UpstreamModelName) {
@@ -212,7 +212,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	if a.isYike {
 		if info.RelayMode == constant.RelayModeImagesEdits {
-			return nil, fmt.Errorf("yike image editing is not supported")
+			return nil, yikeInvalidRequest(fmt.Errorf("yike image editing is not supported"))
 		}
 		query, err := convertYikeImageRequest(info, request)
 		if err != nil {
@@ -302,7 +302,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			}
 		case constant.RelayModeImagesEdits:
 			if a.isYike {
-				err = types.NewError(fmt.Errorf("yike image editing is not supported"), types.ErrorCodeInvalidRequest)
+				err = types.NewError(fmt.Errorf("yike image editing is not supported"), types.ErrorCodeInvalidRequest, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 			} else {
 				err, usage = aliImageHandler(a, c, resp, info)
 			}
