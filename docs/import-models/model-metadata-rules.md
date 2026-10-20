@@ -17,6 +17,7 @@
    | `wan*` | 阿里巴巴 |
    | `vidu*` | Vidu |
    | `doubao-*` | 字节跳动 |
+   | `seedance-*` | 字节跳动 |
    | `minimax-*` | MiniMax |
 
    前缀不在表内时，先在此表新增映射再配置，不要临时造厂商。

@@ -132,3 +132,17 @@ func TestQwenImageNameDoesNotDeclareImageGeneration(t *testing.T) {
 		assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, endpointTypes, model)
 	}
 }
+
+// TestAliChannelVideoTaskEndpointTypes 锁定 Ali（17）渠道的视频任务模型端点：
+// 万镜一刻（Yike）视频由 alibaba 任务插件承载，客户端入口是通用任务端点
+// /v1/video/generations，端点类型必须是 video-generation；文本模型仍只暴露
+// OpenAI 兼容端点。
+func TestAliChannelVideoTaskEndpointTypes(t *testing.T) {
+	for _, model := range []string{"seedance-2.0-a", "seedance-2.5-a"} {
+		endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeAli, model)
+		assert.Equal(t, []constant.EndpointType{constant.EndpointTypeVideoGeneration}, endpointTypes, model)
+	}
+
+	endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeAli, "deepseek-v4.1-flash-a")
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, endpointTypes)
+}
