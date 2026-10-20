@@ -1,10 +1,12 @@
 package ali
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -24,6 +26,9 @@ import (
 
 type Adaptor struct {
 	IsSyncImageModel bool
+	isYike           bool
+	yikeBaseURL      string
+	yikeQuery        url.Values
 }
 
 const aliAnthropicMessagesModelsEnv = "ALI_ANTHROPIC_MESSAGES_MODELS"
@@ -90,6 +95,12 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
+	if info == nil {
+		return
+	}
+	a.yikeQuery = nil
+	a.yikeBaseURL = info.ChannelBaseUrl
+	a.isYike = isYikeBaseURL(info.ChannelBaseUrl)
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -110,13 +121,24 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case constant.RelayModeResponses:
 			fullRequestURL = fmt.Sprintf("%s/api/v2/apps/protocols/compatible-mode/v1/responses", info.ChannelBaseUrl)
 		case constant.RelayModeImagesGenerations:
-			if isSyncImageModel(info.UpstreamModelName) {
+			if a.isYike {
+				if a.yikeQuery == nil {
+					return "", fmt.Errorf("yike image request is not initialized")
+				}
+				yikeURL, err := yikeRPCURL(info.ChannelBaseUrl, a.yikeQuery)
+				if err != nil {
+					return "", err
+				}
+				fullRequestURL = yikeURL
+			} else if isSyncImageModel(info.UpstreamModelName) {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
 			} else {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/text2image/image-synthesis", info.ChannelBaseUrl)
 			}
 		case constant.RelayModeImagesEdits:
-			if isOldWanModel(info.UpstreamModelName) {
+			if a.isYike {
+				return "", fmt.Errorf("yike image editing is not supported")
+			} else if isOldWanModel(info.UpstreamModelName) {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/image2image/image-synthesis", info.ChannelBaseUrl)
 			} else if isWanModel(info.UpstreamModelName) {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/image-generation/generation", info.ChannelBaseUrl)
@@ -136,6 +158,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
+	if a.isYike && (info.RelayMode == constant.RelayModeImagesGenerations || info.RelayMode == constant.RelayModeImagesEdits) {
+		// Yike 的业务参数在 query 中，body 为空；强制 JSON 以拿到 JSON 错误体。
+		req.Set("Accept", "application/json")
+		req.Set("Content-Type", "application/json")
+		return nil
+	}
 	if info.IsStream {
 		req.Set("X-DashScope-SSE", "enable")
 	}
@@ -182,6 +210,18 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if a.isYike {
+		if info.RelayMode == constant.RelayModeImagesEdits {
+			return nil, fmt.Errorf("yike image editing is not supported")
+		}
+		query, err := convertYikeImageRequest(info, request)
+		if err != nil {
+			return nil, err
+		}
+		a.yikeQuery = query
+		// Yike 的请求参数全部在 query 中，POST body 必须为空。
+		return bytes.NewBuffer(nil), nil
+	}
 	if info.RelayMode == constant.RelayModeImagesGenerations {
 		if isSyncImageModel(info.UpstreamModelName) {
 			a.IsSyncImageModel = true
@@ -255,9 +295,17 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	default:
 		switch info.RelayMode {
 		case constant.RelayModeImagesGenerations:
-			err, usage = aliImageHandler(a, c, resp, info)
+			if a.isYike {
+				err, usage = yikeImageHandler(a, c, resp, info)
+			} else {
+				err, usage = aliImageHandler(a, c, resp, info)
+			}
 		case constant.RelayModeImagesEdits:
-			err, usage = aliImageHandler(a, c, resp, info)
+			if a.isYike {
+				err = types.NewError(fmt.Errorf("yike image editing is not supported"), types.ErrorCodeInvalidRequest)
+			} else {
+				err, usage = aliImageHandler(a, c, resp, info)
+			}
 		case constant.RelayModeRerank:
 			err, usage = RerankHandler(c, resp, info)
 		default:
