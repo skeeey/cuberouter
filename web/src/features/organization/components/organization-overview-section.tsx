@@ -20,15 +20,23 @@ For commercial licensing, please contact support@quantumnous.com
 import { Activity, Coins, Gauge, Wallet } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatCard } from '@/features/dashboard/components/ui/stat-card'
 import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import { CHART_COLORS } from '@/lib/colors'
@@ -39,7 +47,10 @@ import { getOrganizationQuotaData } from '../api'
 import { useOrganizationResourceSection } from '../hooks/use-organization-paged-query'
 import type { Organization, OrganizationQuotaDataRow } from '../types'
 import { useOrganizationSurface } from './organization-page-provider'
-import { OrganizationSection, OrganizationSectionEmpty } from './organization-section'
+import {
+  OrganizationSection,
+  OrganizationSectionEmpty,
+} from './organization-section'
 
 /**
  * The backend rejects a window wider than this with `success: false`.
@@ -81,7 +92,9 @@ export function OrganizationOverviewSection(
     start_timestamp: window.start
       ? Math.floor(window.start.getTime() / 1000)
       : undefined,
-    end_timestamp: window.end ? Math.floor(window.end.getTime() / 1000) : undefined,
+    end_timestamp: window.end
+      ? Math.floor(window.end.getTime() / 1000)
+      : undefined,
   }
 
   const usage = useOrganizationResourceSection<OrganizationQuotaDataRow[]>({
@@ -89,7 +102,8 @@ export function OrganizationOverviewSection(
     organizationId: props.organization.id,
     resource: 'quota-data',
     params,
-    query: () => getOrganizationQuotaData(surface, props.organization.id, params),
+    query: () =>
+      getOrganizationQuotaData(surface, props.organization.id, params),
     enabled: props.canViewUsage,
     onForbidden: props.onForbidden,
   })
@@ -112,22 +126,24 @@ export function OrganizationOverviewSection(
     <OrganizationSection
       icon='overview'
       title={t('Overview')}
-      description={t('Quota, traffic and model usage for the whole organization.')}
-      actions={
-        <CompactDateTimeRangePicker
-          start={range.start}
-          end={range.end}
-          onChange={setRange}
-        />
-      }
+      description={t(
+        'Quota, traffic and model usage for the whole organization.'
+      )}
       scroll
     >
       <div className='flex flex-col gap-3'>
         <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
           <StatCard
-            title={t('Remaining quota')}
+            title={t('Total Quota')}
             value={formatQuota(props.organization.quota)}
-            description={t('Shared by every API key in this organization.')}
+            description={t('Remaining {{amount}}', {
+              amount: formatQuota(
+                Math.max(
+                  props.organization.quota - props.organization.used_quota,
+                  0
+                )
+              ),
+            })}
             icon={Wallet}
             tone='accent-1'
             loading={usage.isLoading}
@@ -158,6 +174,19 @@ export function OrganizationOverviewSection(
           />
         </div>
 
+        <div className='flex flex-wrap items-center gap-2'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Statistics range')}
+          </span>
+          <CompactDateTimeRangePicker
+            start={range.start}
+            end={range.end}
+            onChange={setRange}
+            precision='day'
+            className='w-full sm:w-72'
+          />
+        </div>
+
         <div className='grid grid-cols-1 gap-3 xl:grid-cols-2'>
           <ModelCallChart rows={rows} isLoading={usage.isLoading} />
           <ModelQuotaChart rows={rows} isLoading={usage.isLoading} />
@@ -175,7 +204,10 @@ export function OrganizationOverviewSection(
  * the two charts below share one fetch.
  */
 function aggregateByModel(rows: OrganizationQuotaDataRow[]) {
-  const byModel = new Map<string, { model: string; count: number; quota: number }>()
+  const byModel = new Map<
+    string,
+    { model: string; count: number; quota: number }
+  >()
   for (const row of rows) {
     const model = row.model_name || '-'
     const entry = byModel.get(model) ?? { model, count: 0, quota: 0 }
@@ -186,9 +218,15 @@ function aggregateByModel(rows: OrganizationQuotaDataRow[]) {
   return [...byModel.values()].sort((a, b) => b.count - a.count)
 }
 
-function ModelCallChart(props: { rows: OrganizationQuotaDataRow[]; isLoading: boolean }) {
+function ModelCallChart(props: {
+  rows: OrganizationQuotaDataRow[]
+  isLoading: boolean
+}) {
   const { t } = useTranslation()
-  const data = useMemo(() => aggregateByModel(props.rows).slice(0, 10), [props.rows])
+  const data = useMemo(
+    () => aggregateByModel(props.rows).slice(0, 10),
+    [props.rows]
+  )
   const config = useMemo<ChartConfig>(
     () => ({ count: { label: t('Requests'), color: CHART_COLORS[0] } }),
     [t]
@@ -204,12 +242,19 @@ function ModelCallChart(props: { rows: OrganizationQuotaDataRow[]; isLoading: bo
           <ChartPlaceholder isLoading={props.isLoading} />
         ) : (
           <ChartContainer config={config} className='aspect-auto h-64 w-full'>
-            <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+            <BarChart
+              data={data}
+              margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
+            >
               <CartesianGrid vertical={false} />
               <XAxis dataKey='model' tickLine={false} axisLine={false} />
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey='count' fill='var(--color-count)' radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey='count'
+                fill='var(--color-count)'
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ChartContainer>
         )}
@@ -218,7 +263,10 @@ function ModelCallChart(props: { rows: OrganizationQuotaDataRow[]; isLoading: bo
   )
 }
 
-function ModelQuotaChart(props: { rows: OrganizationQuotaDataRow[]; isLoading: boolean }) {
+function ModelQuotaChart(props: {
+  rows: OrganizationQuotaDataRow[]
+  isLoading: boolean
+}) {
   const { t } = useTranslation()
   const data = useMemo(
     () =>
@@ -243,13 +291,37 @@ function ModelQuotaChart(props: { rows: OrganizationQuotaDataRow[]; isLoading: b
           <ChartPlaceholder isLoading={props.isLoading} />
         ) : (
           <ChartContainer config={config} className='aspect-auto h-64 w-full'>
-            <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+            <LineChart
+              data={data}
+              margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
+            >
               <CartesianGrid vertical={false} />
               <XAxis dataKey='model' tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} width={64} />
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={80}
+                tickFormatter={(value: number) => formatQuota(value)}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(value, name) => (
+                      <div className='flex w-full items-center justify-between gap-2'>
+                        <span className='text-muted-foreground'>
+                          {String(name)}
+                        </span>
+                        <span className='text-foreground font-mono font-medium tabular-nums'>
+                          {formatQuota(Number(value))}
+                        </span>
+                      </div>
+                    )}
+                  />
+                }
+              />
               <Line
                 dataKey='quota'
+                name={t('Quota')}
                 type='monotone'
                 stroke='var(--color-quota)'
                 strokeWidth={2}
@@ -273,7 +345,13 @@ function ChartPlaceholder(props: { isLoading: boolean }) {
 }
 
 function defaultWindow(): { start?: Date; end?: Date } {
-  return { start: dayjs().subtract(DEFAULT_WINDOW_DAYS, 'day').toDate(), end: new Date() }
+  return {
+    start: dayjs()
+      .subtract(DEFAULT_WINDOW_DAYS - 1, 'day')
+      .startOf('day')
+      .toDate(),
+    end: dayjs().endOf('day').toDate(),
+  }
 }
 
 /**

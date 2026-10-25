@@ -30,21 +30,45 @@ import {
 import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
 
+type RangePrecision = 'minute' | 'day'
+
 interface CompactDateTimeRangePickerProps {
   start?: Date
   end?: Date
   onChange: (range: { start?: Date; end?: Date }) => void
   className?: string
+  /**
+   * Smallest unit the operator can pick.
+   *
+   * `day` narrows the inputs to `<input type="date">` and expands the chosen
+   * edges to whole days; the default keeps the minute-level timestamps used by
+   * the log and task filters.
+   */
+  precision?: RangePrecision
 }
 
-function toInputValue(date?: Date): string {
-  return date ? dayjs(date).format('YYYY-MM-DDTHH:mm') : ''
+function toInputValue(
+  date: Date | undefined,
+  precision: RangePrecision
+): string {
+  if (!date) return ''
+  return dayjs(date).format(
+    precision === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DDTHH:mm'
+  )
 }
 
-function fromInputValue(value: string): Date | undefined {
+function fromInputValue(
+  value: string,
+  precision: RangePrecision,
+  edge: 'start' | 'end'
+): Date | undefined {
   if (!value) return undefined
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? undefined : date
+  const date = dayjs(value)
+  if (!date.isValid()) return undefined
+  if (precision === 'day') {
+    return (edge === 'start' ? date.startOf('day') : date.endOf('day')).toDate()
+  }
+  return date.toDate()
 }
 
 export function CompactDateTimeRangePicker({
@@ -52,35 +76,37 @@ export function CompactDateTimeRangePicker({
   end,
   onChange,
   className,
+  precision = 'minute',
 }: CompactDateTimeRangePickerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [draftStart, setDraftStart] = useState(toInputValue(start))
-  const [draftEnd, setDraftEnd] = useState(toInputValue(end))
+  const [draftStart, setDraftStart] = useState(toInputValue(start, precision))
+  const [draftEnd, setDraftEnd] = useState(toInputValue(end, precision))
 
   const label = useMemo(() => {
     if (!start && !end) return t('Date Range')
-    // The popover's <input type="datetime-local"> only supports minute
-    // precision, so seconds are always 00 (manual pick) or 59 (preset
-    // end-of-day). Hide them in the trigger label to keep the button
-    // width compact while still showing the meaningful timestamp.
-    const startText = start ? dayjs(start).format('YYYY-MM-DD HH:mm') : '-'
-    const endText = end ? dayjs(end).format('YYYY-MM-DD HH:mm') : '-'
+    // The popover's native input only supports minute precision, so seconds
+    // are always 00 (manual pick) or 59 (preset end-of-day). Hide them in the
+    // trigger label to keep the button width compact while still showing the
+    // meaningful timestamp. Day precision drops the time part entirely.
+    const format = precision === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm'
+    const startText = start ? dayjs(start).format(format) : '-'
+    const endText = end ? dayjs(end).format(format) : '-'
     return `${startText} ~ ${endText}`
-  }, [end, start, t])
+  }, [end, precision, start, t])
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
-      setDraftStart(toInputValue(start))
-      setDraftEnd(toInputValue(end))
+      setDraftStart(toInputValue(start, precision))
+      setDraftEnd(toInputValue(end, precision))
     }
     setOpen(nextOpen)
   }
 
   const applyDraft = () => {
     onChange({
-      start: fromInputValue(draftStart),
-      end: fromInputValue(draftEnd),
+      start: fromInputValue(draftStart, precision, 'start'),
+      end: fromInputValue(draftEnd, precision, 'end'),
     })
     setOpen(false)
   }
@@ -110,8 +136,8 @@ export function CompactDateTimeRangePicker({
       },
     }
     const range = presets[kind]
-    setDraftStart(toInputValue(range.start))
-    setDraftEnd(toInputValue(range.end))
+    setDraftStart(toInputValue(range.start, precision))
+    setDraftEnd(toInputValue(range.end, precision))
     onChange(range)
     setOpen(false)
   }
@@ -145,7 +171,7 @@ export function CompactDateTimeRangePicker({
                 {t('Start Time')}
               </div>
               <Input
-                type='datetime-local'
+                type={precision === 'day' ? 'date' : 'datetime-local'}
                 value={draftStart}
                 onChange={(e) => setDraftStart(e.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
@@ -159,7 +185,7 @@ export function CompactDateTimeRangePicker({
                 {t('End Time')}
               </div>
               <Input
-                type='datetime-local'
+                type={precision === 'day' ? 'date' : 'datetime-local'}
                 value={draftEnd}
                 onChange={(e) => setDraftEnd(e.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
