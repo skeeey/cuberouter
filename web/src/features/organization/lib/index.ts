@@ -188,7 +188,6 @@ export {
   organizationLogTokenName,
   organizationLogTypeMeta,
   ORGANIZATION_LOG_TYPE,
-  ORGANIZATION_LOG_TYPE_FILTER_OPTIONS,
   type OrganizationLogTimeRangeParams,
   type OrganizationLogTimeWindow,
 } from './organization-log'

@@ -28,7 +28,6 @@ import {
   organizationLogTokenName,
   organizationLogTypeMeta,
   ORGANIZATION_LOG_TYPE,
-  ORGANIZATION_LOG_TYPE_FILTER_OPTIONS,
 } from '../organization-log'
 
 const FALLBACK = {
@@ -58,9 +57,9 @@ describe('organizationLogTypeMeta', () => {
     )
 
     expect(new Set(labels).size).toBe(labels.length)
-    expect(organizationLogTypeMeta(ORGANIZATION_LOG_TYPE.CONSUME).labelKey).toBe(
-      'Consume'
-    )
+    expect(
+      organizationLogTypeMeta(ORGANIZATION_LOG_TYPE.CONSUME).labelKey
+    ).toBe('Consume')
   })
 
   test('an absent or unknown type falls back to one label, not a crash', () => {
@@ -68,22 +67,6 @@ describe('organizationLogTypeMeta', () => {
       organizationLogTypeMeta(0)
     )
     expect(organizationLogTypeMeta(99)).toEqual(organizationLogTypeMeta(0))
-  })
-
-  test('the filter options cover every type, in backend order', () => {
-    expect(ORGANIZATION_LOG_TYPE_FILTER_OPTIONS.map((o) => o.value)).toEqual([
-      '1',
-      '2',
-      '3',
-      '4',
-      '5',
-      '6',
-      '7',
-    ])
-    // No "all" entry: an empty filter is how the UI says every type.
-    expect(
-      ORGANIZATION_LOG_TYPE_FILTER_OPTIONS.some((o) => o.value === '0')
-    ).toBe(false)
   })
 })
 
@@ -98,9 +81,9 @@ describe('organizationLogTimeWindow', () => {
     const start = new Date('2026-09-01T08:00:00.000Z').getTime()
     const end = new Date('2026-09-02T08:00:00.000Z').getTime()
 
-    expect(organizationLogTimeWindow({ startTime: start, endTime: end }, FALLBACK)).toEqual(
-      { start: new Date(start), end: new Date(end), fromUrl: true }
-    )
+    expect(
+      organizationLogTimeWindow({ startTime: start, endTime: end }, FALLBACK)
+    ).toEqual({ start: new Date(start), end: new Date(end), fromUrl: true })
   })
 
   test('a half-written link gets the default for the bound it omits', () => {
@@ -212,9 +195,9 @@ describe('organizationLogResponsibleName', () => {
   })
 
   test('an id with no name anywhere still names the row', () => {
-    expect(organizationLogResponsibleName(row({ responsible_user_id: 42 }))).toBe(
-      '#42'
-    )
+    expect(
+      organizationLogResponsibleName(row({ responsible_user_id: 42 }))
+    ).toBe('#42')
   })
 
   test('a row with no holder at all reads as a dash', () => {

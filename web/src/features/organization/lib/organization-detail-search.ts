@@ -31,25 +31,19 @@ import z from 'zod'
  */
 function enumArrayParam(values: readonly [string, ...string[]]) {
   return z
-    .preprocess(
-      (value) => {
-        if (value == null || value === '') return undefined
-        return Array.isArray(value) ? value : [value]
-      },
-      z.array(z.enum(values)).optional()
-    )
+    .preprocess((value) => {
+      if (value == null || value === '') return undefined
+      return Array.isArray(value) ? value : [value]
+    }, z.array(z.enum(values)).optional())
     .catch([])
 }
 
 function freeArrayParam() {
   return z
-    .preprocess(
-      (value) => {
-        if (value == null || value === '') return undefined
-        return Array.isArray(value) ? value : [value]
-      },
-      z.array(z.string()).optional()
-    )
+    .preprocess((value) => {
+      if (value == null || value === '') return undefined
+      return Array.isArray(value) ? value : [value]
+    }, z.array(z.string()).optional())
     .catch([])
 }
 
@@ -71,12 +65,7 @@ export const ORGANIZATION_INVITE_STATUS_VALUES = [
  * `model.Token.Status`: the four values the backend can store. They stay
  * strings here because that is what a URL carries and what the filter compares.
  */
-export const ORGANIZATION_TOKEN_STATUS_VALUES = [
-  '1',
-  '2',
-  '3',
-  '4',
-] as const
+export const ORGANIZATION_TOKEN_STATUS_VALUES = ['1', '2', '3', '4'] as const
 
 export const ORGANIZATION_TOKEN_VISIBILITY_VALUES = [
   'private',
@@ -110,7 +99,9 @@ export const organizationDetailSearchSchema = z.object({
   // see controller/organization_token.go.
   tokenFilter: z.string().optional().catch(''),
   tokenStatus: enumArrayParam(ORGANIZATION_TOKEN_STATUS_VALUES).optional(),
-  tokenVisibility: enumArrayParam(ORGANIZATION_TOKEN_VISIBILITY_VALUES).optional(),
+  tokenVisibility: enumArrayParam(
+    ORGANIZATION_TOKEN_VISIBILITY_VALUES
+  ).optional(),
   tokenGroup: freeArrayParam().optional(),
   tokenResponsible: freeArrayParam().optional(),
 
@@ -118,10 +109,8 @@ export const organizationDetailSearchSchema = z.object({
   // (OrganizationLogListRequest in service/organization_log.go). All of them are
   // single-valued, and a single-valued filter that is offered as a multi-select
   // would put a spelling in the URL the endpoint cannot read.
-  logType: z.string().optional().catch(''),
   logModel: z.string().optional().catch(''),
   logToken: z.string().optional().catch(''),
-  logGroup: z.string().optional().catch(''),
   logRequest: z.string().optional().catch(''),
   logResponsible: z.string().optional().catch(''),
 

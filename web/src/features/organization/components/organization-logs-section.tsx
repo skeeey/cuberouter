@@ -24,13 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -67,7 +60,6 @@ import {
   organizationLogTokenName,
   organizationLogTypeMeta,
   ORGANIZATION_LOG_TYPE,
-  ORGANIZATION_LOG_TYPE_FILTER_OPTIONS,
   setOrganizationTextFilter,
 } from '../lib'
 import { ORGANIZATION_DEFAULT_PAGE_SIZE } from '../lib/organization-pagination'
@@ -127,10 +119,8 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
     },
     globalFilter: { enabled: false },
     columnFilters: [
-      { columnId: 'type', searchKey: 'logType', type: 'string' },
       { columnId: 'model_name', searchKey: 'logModel', type: 'string' },
       { columnId: 'token_name', searchKey: 'logToken', type: 'string' },
-      { columnId: 'group', searchKey: 'logGroup', type: 'string' },
       { columnId: 'request_id', searchKey: 'logRequest', type: 'string' },
       {
         columnId: 'responsible_user_id',
@@ -144,10 +134,8 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
   const timeRange = organizationLogTimeRangeParams(window.start, window.end)
 
   const filters = {
-    type: parseLogType(organizationColumnFilterValue(columnFilters, 'type')),
     model_name: organizationColumnFilterValue(columnFilters, 'model_name'),
     token_name: organizationColumnFilterValue(columnFilters, 'token_name'),
-    group: organizationColumnFilterValue(columnFilters, 'group'),
     request_id: organizationColumnFilterValue(columnFilters, 'request_id'),
     responsible_name: props.canViewWideData
       ? organizationColumnFilterValue(columnFilters, 'responsible_user_id')
@@ -166,7 +154,8 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
     organizationId: props.organizationId,
     resource: 'logs',
     params: listParams,
-    query: () => listOrganizationLogs(surface, props.organizationId, listParams),
+    query: () =>
+      listOrganizationLogs(surface, props.organizationId, listParams),
     enabled: props.canView,
     onForbidden: props.onForbidden,
   })
@@ -291,18 +280,6 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
                   }
                 />
                 <OrganizationTextFilter
-                  value={filters.group}
-                  placeholder={t('Group')}
-                  onChange={(value) =>
-                    setOrganizationTextFilter(
-                      onColumnFiltersChange,
-                      columnFilters,
-                      'group',
-                      value
-                    )
-                  }
-                />
-                <OrganizationTextFilter
                   value={filters.request_id}
                   placeholder={t('Request ID')}
                   onChange={(value) =>
@@ -330,24 +307,8 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
                 ) : null}
               </>
             }
-            advancedFilters={
-              <LogsFilterField wide>
-                <LogTypeFilter
-                  value={filters.type}
-                  onChange={(value) =>
-                    setOrganizationTextFilter(
-                      onColumnFiltersChange,
-                      columnFilters,
-                      'type',
-                      value
-                    )
-                  }
-                />
-              </LogsFilterField>
-            }
             stats={<OrganizationLogStatsPills stats={stats.data} />}
             hasActiveFilters={isFiltered || window.fromUrl}
-            hasAdvancedActiveFilters={filters.type !== undefined}
             searchLoading={logs.isFetching}
             onReset={resetFilters}
             onSearch={logs.refetch}
@@ -355,64 +316,6 @@ export function OrganizationLogsSection(props: OrganizationLogsSectionProps) {
         }
       />
     </OrganizationSection>
-  )
-}
-
-/** One of the text filters above the table. */
-/**
- * The type, as the endpoint wants it.
- *
- * Zero is the backend's "unset" (`model.LogTypeUnknown`), so it is treated as
- * no choice at all rather than sent as one — a hand-edited link reading
- * `logType=0` means the same thing as no link, and should look the same too.
- */
-function parseLogType(value?: string): number | undefined {
-  if (value === undefined) return undefined
-  const parsed = Number.parseInt(value, 10)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
-}
-
-/**
- * The type filter.
- *
- * A plain select rather than a faceted one: the set is fixed, the backend takes
- * one value, and "every type" is the absence of a choice rather than a choice
- * of its own. The sentinel below never reaches the URL — it clears the filter.
- */
-function LogTypeFilter(props: {
-  value?: number
-  onChange: (value: string) => void
-}) {
-  const { t } = useTranslation()
-  const ANY_TYPE = ''
-
-  // The trigger resolves its text from the items the root is given, so the list
-  // is built once here and the options are drawn from it.
-  const typeItems = [
-    { value: ANY_TYPE, label: t('All Types') },
-    ...ORGANIZATION_LOG_TYPE_FILTER_OPTIONS.map((option) => ({
-      value: option.value,
-      label: t(option.labelKey),
-    })),
-  ]
-
-  return (
-    <Select
-      items={typeItems}
-      value={props.value === undefined ? ANY_TYPE : String(props.value)}
-      onValueChange={(next) => props.onChange(next ?? ANY_TYPE)}
-    >
-      <SelectTrigger className='h-8 w-full' size='sm'>
-        <SelectValue placeholder={t('Type')} />
-      </SelectTrigger>
-      <SelectContent>
-        {typeItems.map((item) => (
-          <SelectItem key={item.value} value={item.value}>
-            {item.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   )
 }
 
@@ -547,18 +450,6 @@ function buildLogColumns(
       ),
     },
     {
-      accessorKey: 'group',
-      header: t('Group'),
-      enableSorting: false,
-      size: 110,
-      cell: ({ row }) =>
-        row.original.group ? (
-          <span className='font-mono text-xs'>{row.original.group}</span>
-        ) : (
-          <span className='text-muted-foreground'>-</span>
-        ),
-    },
-    {
       accessorKey: 'model_name',
       header: t('Model'),
       enableSorting: false,
@@ -659,10 +550,7 @@ function buildLogColumns(
       enableSorting: false,
       size: 110,
       cell: ({ row }) => (
-        <LogDetailsCell
-          row={row.original}
-          showResponsible={showResponsible}
-        />
+        <LogDetailsCell row={row.original} showResponsible={showResponsible} />
       ),
     }
   )

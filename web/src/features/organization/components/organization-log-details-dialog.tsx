@@ -127,7 +127,6 @@ export function OrganizationLogDetailsDialog(
             value={organizationLogTokenName(row)}
             mono
           />
-          <DetailRow label={t('Group')} value={row.group || '-'} mono />
           <DetailRow
             label={t('IP')}
             value={<CopyableValue value={row.ip} label={t('IP')} />}
@@ -185,7 +184,9 @@ export function OrganizationLogDetailsDialog(
           <DetailSection label={t('Violation Fee')}>
             <DetailRow
               label={t('Code')}
-              value={other?.violation_fee_code || other?.violation_fee_marker || '-'}
+              value={
+                other?.violation_fee_code || other?.violation_fee_marker || '-'
+              }
               mono
             />
             <DetailRow
@@ -197,11 +198,7 @@ export function OrganizationLogDetailsDialog(
         ) : null}
 
         {!isViolation && row.type === 2 && other ? (
-          <BillingBreakdown
-            quota={row.quota}
-            other={other}
-            isAdmin={false}
-          />
+          <BillingBreakdown quota={row.quota} other={other} isAdmin={false} />
         ) : null}
 
         {other?.billing_source === 'subscription' ? (

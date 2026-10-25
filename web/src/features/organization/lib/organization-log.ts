@@ -66,24 +66,6 @@ export function organizationLogTypeMeta(type?: number): {
   )
 }
 
-/**
- * What the type filter offers.
- *
- * There is no "all types" entry: an empty filter already means every type. The
- * endpoint skips the type clause entirely when it is absent (the service
- * compares against `model.LogTypeUnknown`, which is zero), so a sentinel option
- * would only add a second way to say the same thing.
- */
-export const ORGANIZATION_LOG_TYPE_FILTER_OPTIONS = Object.keys(
-  ORGANIZATION_LOG_TYPE_META
-)
-  .map(Number)
-  .sort((a, b) => a - b)
-  .map((value) => ({
-    value: String(value),
-    labelKey: organizationLogTypeMeta(value).labelKey,
-  }))
-
 // ============================================================================
 // Time Window
 // ============================================================================
@@ -179,8 +161,8 @@ export function organizationLogModelInfo(row: {
   const other = parseLogOther(row.other ?? '')
   const isMapped = Boolean(
     other?.is_model_mapped &&
-      other.upstream_model_name &&
-      other.upstream_model_name !== ''
+    other.upstream_model_name &&
+    other.upstream_model_name !== ''
   )
 
   return {
@@ -196,7 +178,9 @@ export function organizationLogModelInfo(row: {
  * has since been deleted has only the stored snapshot, and one with none at all
  * falls back to the id so the column never reads as empty.
  */
-export function organizationLogResponsibleName(row: OrganizationLogRow): string {
+export function organizationLogResponsibleName(
+  row: OrganizationLogRow
+): string {
   const named =
     row.responsible_display_name ||
     row.responsible_username ||
