@@ -115,12 +115,11 @@ export const organizationDetailSearchSchema = z.object({
   logResponsible: z.string().optional().catch(''),
 
   // Tasks — the panel, then the async task filters the endpoint accepts
-  // (OrganizationTaskListRequest in service/organization_task.go). Platform
-  // stays a keyword rather than an enumeration: the set is whatever task
-  // plugins the installation has installed, not the six the frontend ships.
+  // (OrganizationTaskListRequest in service/organization_task.go). Platform is
+  // not offered while the section serves one upstream family; `taskTab` stays
+  // for links written before the Midjourney tab was disabled.
   taskTab: z.enum(['tasks', 'midjourney']).optional().catch('tasks'),
   taskId: z.string().optional().catch(''),
-  taskPlatform: z.string().optional().catch(''),
   taskStatus: z.string().optional().catch(''),
   taskAction: z.string().optional().catch(''),
 

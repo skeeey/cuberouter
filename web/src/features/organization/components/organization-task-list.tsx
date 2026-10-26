@@ -17,9 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ChevronDown, Download, Loader2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useTaskLogsColumns } from '@/features/usage-logs/components/columns/task-logs-columns'
 import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import {
@@ -32,6 +42,7 @@ import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { listOrganizationTasks } from '../api'
 import { useOrganizationPagedSection } from '../hooks/use-organization-paged-query'
 import {
+  collectOrganizationRows,
   insertColumnsAfter,
   organizationColumnFilterValue,
   organizationLogTimeWindow,
@@ -43,16 +54,21 @@ import {
   type OrganizationTaskLog,
 } from '../lib'
 import { ORGANIZATION_DEFAULT_PAGE_SIZE } from '../lib/organization-pagination'
+import {
+  buildTaskExportSheet,
+  writeTaskExportFile,
+  type TaskExportMode,
+} from '../lib/organization-task-export'
 import type { OrganizationTaskRow } from '../types'
 import {
   OrganizationSelectFilter,
   OrganizationTextFilter,
 } from './organization-filter-fields'
-import { buildOrganizationTaskColumns } from './organization-task-columns'
 import {
   useOrganizationSectionRoute,
   useOrganizationSurface,
 } from './organization-page-provider'
+import { buildOrganizationTaskColumns } from './organization-task-columns'
 
 const TASK_COLUMN_VISIBILITY_STORAGE_KEY = 'organization-task-column-visibility'
 
@@ -73,11 +89,11 @@ type OrganizationTaskListProps = {
  * is what keeps the two tables from drifting apart.
  *
  * Only the filters are the organization's own, because only the filters are the
- * endpoint's own. It takes a platform, a task id, a status and an action, and it
- * pins the list to the caller unless they may read everyone's — so there is no
- * member filter here: a member whose rows the caller cannot see is not something
- * they can search for, and offering the box would only make the request look
- * more specific than the answer is.
+ * endpoint's own. It takes a task id, a status and an action, and it pins the
+ * list to the caller unless they may read everyone's — so there is no member
+ * filter here: a member whose rows the caller cannot see is not something they
+ * can search for, and offering the box would only make the request look more
+ * specific than the answer is.
  */
 export function OrganizationTaskList(props: OrganizationTaskListProps) {
   const { t } = useTranslation()
@@ -98,12 +114,8 @@ export function OrganizationTaskList(props: OrganizationTaskListProps) {
       defaultPageSize: ORGANIZATION_DEFAULT_PAGE_SIZE,
     },
     globalFilter: { enabled: false },
-    // Two of these name columns the table has (`task_id`, `status`); two do not,
-    // and do not need to — a column filter is URL state, and the endpoint reads
-    // the parameter whatever the table chooses to render.
     columnFilters: [
       { columnId: 'task_id', searchKey: 'taskId', type: 'string' },
-      { columnId: 'platform', searchKey: 'taskPlatform', type: 'string' },
       { columnId: 'status', searchKey: 'taskStatus', type: 'string' },
       { columnId: 'action', searchKey: 'taskAction', type: 'string' },
     ],
@@ -122,7 +134,6 @@ export function OrganizationTaskList(props: OrganizationTaskListProps) {
 
   const filters = {
     task_id: organizationColumnFilterValue(columnFilters, 'task_id'),
-    platform: organizationColumnFilterValue(columnFilters, 'platform'),
     status: organizationColumnFilterValue(columnFilters, 'status'),
     action: organizationColumnFilterValue(columnFilters, 'action'),
   }
@@ -144,23 +155,78 @@ export function OrganizationTaskList(props: OrganizationTaskListProps) {
     onForbidden: props.onForbidden,
   })
 
-  // The personal task table's columns with the organization's own inserted
-  // after the task id, so a row reads as: what it was, whose it was, what it
-  // cost, then how it went.
-  const sharedColumns = useTaskLogsColumns(false, false)
+  // The personal task table's columns, minus the ones the organization view
+  // does not show: the task id and type are re-added by the organization
+  // columns in a more useful form, progress is usually empty for asynchronous
+  // upstreams, and artifacts are not part of this page.
+  const sharedColumns = useTaskLogsColumns(false, false).filter((column) => {
+    const { id, accessorKey } = column as { id?: string; accessorKey?: string }
+    const columnId = id ?? accessorKey
+    return (
+      columnId !== 'task_id' &&
+      columnId !== 'progress' &&
+      columnId !== 'artifacts'
+    )
+  })
   const organizationColumns = buildOrganizationTaskColumns<OrganizationTaskLog>(
     {
       showMember: props.canViewWideData,
+      showTaskId: true,
+      showType: true,
       translate: t,
     }
   )
   const columns = insertColumnsAfter(
     sharedColumns,
-    'task_id',
+    'submit_time',
     organizationColumns
   )
 
   const rows = tasks.items.map(organizationTaskToLog)
+
+  const [exporting, setExporting] = useState<TaskExportMode | null>(null)
+
+  const handleExport = async (mode: TaskExportMode) => {
+    setExporting(mode)
+    try {
+      const collected = await collectOrganizationRows<OrganizationTaskRow>(
+        async (page, pageSize) => {
+          const response = await listOrganizationTasks(
+            surface,
+            props.organizationId,
+            { ...listParams, p: page, page_size: pageSize }
+          )
+          return (
+            response.data ?? {
+              page,
+              page_size: pageSize,
+              total: 0,
+              items: [],
+            }
+          )
+        }
+      )
+      await writeTaskExportFile(
+        buildTaskExportSheet(
+          collected.items.map(organizationTaskToLog),
+          mode,
+          t
+        )
+      )
+      if (collected.truncated) {
+        toast.warning(
+          t('Exported the first {{exported}} of {{total}} records.', {
+            exported: collected.items.length,
+            total: collected.total,
+          })
+        )
+      }
+    } catch {
+      toast.error(t('The export could not be prepared.'))
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const { table } = useDataTable({
     data: rows,
@@ -210,6 +276,36 @@ export function OrganizationTaskList(props: OrganizationTaskListProps) {
           searchLoading={tasks.isFetching}
           onReset={resetFilters}
           onSearch={tasks.refetch}
+          actionStart={
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    disabled={exporting !== null || tasks.total === 0}
+                  />
+                }
+              >
+                {exporting ? (
+                  <Loader2 className='size-4 animate-spin' />
+                ) : (
+                  <Download className='size-4' />
+                )}
+                {exporting ? t('Exporting...') : t('Export')}
+                <ChevronDown className='size-3.5' />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuItem onClick={() => void handleExport('detail')}>
+                  {t('Excel (details)')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleExport('daily')}>
+                  {t('Excel (daily summary)')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
           primaryFilters={
             <>
               <LogsFilterField className='sm:col-span-2'>
@@ -235,18 +331,6 @@ export function OrganizationTaskList(props: OrganizationTaskListProps) {
                     onColumnFiltersChange,
                     columnFilters,
                     'task_id',
-                    value
-                  )
-                }
-              />
-              <OrganizationTextFilter
-                value={filters.platform}
-                placeholder={t('Platform')}
-                onChange={(value) =>
-                  setOrganizationTextFilter(
-                    onColumnFiltersChange,
-                    columnFilters,
-                    'platform',
                     value
                   )
                 }

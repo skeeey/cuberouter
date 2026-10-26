@@ -69,6 +69,7 @@ export type OrganizationTaskLog = TaskLog & {
   creator_user_id?: number
   token_name?: string
   request_id?: string
+  original_quota?: number
 }
 
 /**

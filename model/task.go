@@ -57,6 +57,10 @@ type Task struct {
 	Group     string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
 	ChannelId int                   `json:"channel_id" gorm:"index"`
 	Quota     int                   `json:"quota"`
+	// OriginalQuota is the charge before the effective group ratio (which folds
+	// in the user-model discount). It is populated by the organization task list
+	// for display only; personal task endpoints leave it zero and omit it.
+	OriginalQuota int `json:"original_quota,omitempty" gorm:"-"`
 
 	TokenId        int    `json:"token_id" gorm:"index;default:0"`
 	TokenName      string `json:"token_name" gorm:"index;default:''"`

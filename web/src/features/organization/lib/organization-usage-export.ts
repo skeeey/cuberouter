@@ -17,11 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { SheetData } from 'write-excel-file/browser'
-
 import { parseLogOther } from '@/features/usage-logs/lib/format'
 import { getCurrencyLabel } from '@/lib/currency'
 import dayjs from '@/lib/dayjs'
+import { writeExcelSheet, type ExcelSheet } from '@/lib/excel'
 import { quotaUnitsToDollars } from '@/lib/format'
 
 import type { OrganizationLogRow } from '../types'
@@ -36,11 +35,7 @@ import {
 
 export type UsageExportMode = 'detail' | 'daily'
 
-export interface UsageExportSheet {
-  rows: SheetData
-  columns: Array<{ width: number }>
-  filename: string
-}
+export type UsageExportSheet = ExcelSheet
 
 const TOKEN_FORMAT = '#,##0'
 const MONEY_FORMAT = '#,##0.0000'
@@ -199,10 +194,7 @@ export function buildUsageExportSheet(
 export async function writeUsageExportFile(
   sheet: UsageExportSheet
 ): Promise<void> {
-  const { default: writeExcelFile } = await import('write-excel-file/browser')
-  await writeExcelFile(sheet.rows, { columns: sheet.columns }).toFile(
-    sheet.filename
-  )
+  await writeExcelSheet(sheet)
 }
 
 function usageExportFilename(mode: UsageExportMode, date = new Date()): string {
