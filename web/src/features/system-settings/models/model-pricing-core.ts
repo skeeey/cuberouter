@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import * as z from 'zod'
 
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
+import { isResolutionImagePriceTable } from '@/features/pricing/lib/image-price'
 import type { ImagePriceTable, VideoPriceTable } from '@/features/pricing/types'
 import {
   getBillingCurrency,
@@ -335,14 +336,19 @@ export function buildPreviewRows(
 
   if (mode === 'image-per-image') {
     const rows = imagePriceTable?.rows ?? []
+    const resolutionBased = Boolean(
+      imagePriceTable && isResolutionImagePriceTable(imagePriceTable)
+    )
     return [
       { key: 'mode', label: t('Mode'), value: t('Image per image') },
       {
         key: 'imageRows',
-        label: t('Quality'),
+        label: resolutionBased ? t('Resolution') : t('Quality'),
         value:
           rows.length > 0
-            ? rows.map((row) => row.tier).join(', ')
+            ? rows
+                .map((row) => (resolutionBased ? row.resolution : row.tier))
+                .join(', ')
             : t('Empty'),
       },
     ]

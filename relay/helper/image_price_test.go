@@ -147,3 +147,99 @@ func TestHasModelBillingConfigImagePriceTable(t *testing.T) {
 	assert.True(t, HasModelBillingConfig("img-price-model"))
 	assert.False(t, HasModelBillingConfig("img-unknown-model"))
 }
+
+// seedImagePriceResolution 写入分辨率价格表，价格与 MOSS 方案 A 一致。
+func seedImagePriceResolution(t *testing.T) {
+	t.Helper()
+	require.NoError(t, ratio_setting.UpdateImagePriceByJSONString(`{
+		"img-resolution-model": {
+			"default_resolution": "1024x1024",
+			"rows": [
+				{"resolution": "512x512", "price": 0.002},
+				{"resolution": "1024x1024", "price": 0.006},
+				{"resolution": "1536x1024", "price": 0.01},
+				{"resolution": "2048x2048", "price": 0.038}
+			]
+		}
+	}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateImagePriceByJSONString(""))
+	})
+}
+
+func TestModelPriceHelperImagePriceResolutionTable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	seedImagePriceResolution(t)
+
+	newInfo := func() (*gin.Context, *relaycommon.RelayInfo) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "default")
+		return ctx, &relaycommon.RelayInfo{
+			OriginModelName: "img-resolution-model",
+			UserGroup:       "default",
+			UsingGroup:      "default",
+		}
+	}
+
+	t.Run("resolution and count ratios multiply anchor price", func(t *testing.T) {
+		ctx, info := newInfo()
+		meta := &types.TokenCountMeta{
+			BillingRatios: map[string]float64{"n": 2},
+			ImageSize:     "1024x1024",
+		}
+		priceData, err := ModelPriceHelper(ctx, info, 1000, meta)
+		require.NoError(t, err)
+		require.True(t, priceData.UsePrice)
+		// 锚点 0.038 × 500000 × n=2 × (0.006/0.038) = 6000
+		require.Equal(t, 6000, priceData.QuotaToPreConsume)
+		assert.Equal(t, float64(2), priceData.OtherRatios()["n"])
+		assert.InDelta(t, 0.006/0.038, priceData.OtherRatios()["size"], 1e-15)
+	})
+
+	t.Run("missing size uses default resolution", func(t *testing.T) {
+		ctx, info := newInfo()
+		meta := &types.TokenCountMeta{
+			BillingRatios: map[string]float64{"n": 1},
+		}
+		priceData, err := ModelPriceHelper(ctx, info, 1000, meta)
+		require.NoError(t, err)
+		require.Equal(t, 3000, priceData.QuotaToPreConsume)
+		assert.InDelta(t, 0.006/0.038, priceData.OtherRatios()["size"], 1e-15)
+	})
+
+	t.Run("largest resolution bills at anchor", func(t *testing.T) {
+		ctx, info := newInfo()
+		meta := &types.TokenCountMeta{
+			BillingRatios: map[string]float64{"n": 1},
+			ImageSize:     "2048x2048",
+		}
+		priceData, err := ModelPriceHelper(ctx, info, 1000, meta)
+		require.NoError(t, err)
+		require.Equal(t, 19000, priceData.QuotaToPreConsume)
+		assert.False(t, priceData.HasOtherRatio("size"))
+	})
+
+	t.Run("invalid size format is rejected instead of defaulting", func(t *testing.T) {
+		ctx, info := newInfo()
+		meta := &types.TokenCountMeta{
+			BillingRatios: map[string]float64{"n": 1},
+			ImageSize:     "auto",
+		}
+		_, err := ModelPriceHelper(ctx, info, 1000, meta)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "auto")
+	})
+
+	t.Run("unsupported size is rejected with supported list", func(t *testing.T) {
+		ctx, info := newInfo()
+		meta := &types.TokenCountMeta{
+			BillingRatios: map[string]float64{"n": 1},
+			ImageSize:     "999x999",
+		}
+		_, err := ModelPriceHelper(ctx, info, 1000, meta)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "999x999")
+		require.ErrorContains(t, err, "512x512")
+		require.ErrorContains(t, err, "2048x2048")
+	})
+}

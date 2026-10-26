@@ -177,10 +177,27 @@ option `VideoPrice`:`{"模型名":{"rows":[{"resolution":"720p","normal_price":0
 
 ## 5. 图片按张价目表(ImagePrice)
 
-option `ImagePrice`:`{"模型名":{"rows":[{"tier":"standard","price":0.04}]}}`,USD/张,固定档位 `fast`/`standard`/`high`。
+option `ImagePrice`:`{"模型名":{"rows":[{"tier":"standard","price":0.04}]}}`,USD/张。行可以是固定画质档位 `fast`/`standard`/`high`,也可以按分辨率定价(见下)。
 
-- 计费 = **锚点(最高价档)× quality 系数(该档价/锚点)× n(张数)**。
-- 请求 quality 缺省或表外 → 按锚点计费;`n` 上限 `MaxImageN=128`。
+也支持按**分辨率**定价(适合自建图像服务):
+
+```json
+{
+  "moss-image": {
+    "default_resolution": "1024x1024",
+    "rows": [
+      { "resolution": "512x512", "price": 0.002 },
+      { "resolution": "1024x1024", "price": 0.006 },
+      { "resolution": "2048x2048", "price": 0.038 }
+    ]
+  }
+}
+```
+
+- 两种模式互斥:一张表要么全部用 `tier`,要么全部用 `resolution`;校验会拒绝混用、重复、非法 `WIDTHxHEIGHT` 或价格 ≤ 0。
+- 分辨率表在请求未带 `size` 时使用 `default_resolution`(未配置时回退 `1024x1024`);请求的 `size` 不在表内时直接 400,避免未知尺寸按锚点收费或大尺寸挂住实例。
+- 计费 = **锚点(最高价行)× 行价/锚点 × n**(n 来自响应 `data` 实际条数);请求 `quality`/`size` 缺省或表外时按锚点(画质表)或拒绝(分辨率表)。
+- 画质表继续按请求 `quality` 选档;分辨率表按请求 `size` 选档。
 - 表存在时旧 `ImageRatio`(dall-e 尺寸/画质系数)不再叠加。
 
 ## 6. 工具调用附加费

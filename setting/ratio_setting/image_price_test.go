@@ -105,3 +105,67 @@ func TestUpdateImagePriceEmptyClears(t *testing.T) {
 	_, ok = GetImagePrice("img-clear-model")
 	assert.False(t, ok)
 }
+
+func TestImagePriceResolutionTable(t *testing.T) {
+	require.NoError(t, UpdateImagePriceByJSONString(`{
+		"img-resolution-model": {
+			"default_resolution": "1024x1024",
+			"rows": [
+				{"resolution": "512x512", "price": 0.002},
+				{"resolution": "1024x1024", "price": 0.006},
+				{"resolution": "1536x1024", "price": 0.01},
+				{"resolution": "2048x2048", "price": 0.038}
+			]
+		}
+	}`))
+	table, ok := GetImagePrice("img-resolution-model")
+	require.True(t, ok)
+	require.True(t, table.IsResolutionBased())
+	assert.Equal(t, "1024x1024", table.EffectiveDefaultResolution())
+	assert.Equal(t, 0.038, ImagePriceAnchor(table))
+
+	ratio, ok := ImagePriceResolutionRatio(table, "512x512")
+	require.True(t, ok)
+	assert.InDelta(t, 0.002/0.038, ratio, 1e-15)
+
+	ratio, ok = ImagePriceResolutionRatio(table, " 1024X1024 ")
+	require.True(t, ok)
+	assert.InDelta(t, 0.006/0.038, ratio, 1e-15)
+
+	ratio, ok = ImagePriceResolutionRatio(table, "2048x2048")
+	require.True(t, ok)
+	assert.Equal(t, 1.0, ratio)
+
+	_, ok = ImagePriceResolutionRatio(table, "999x999")
+	assert.False(t, ok)
+
+	// 未配置 default_resolution 时默认 1024x1024，保持与上游默认一致。
+	require.NoError(t, UpdateImagePriceByJSONString(`{"img-resolution-default":{"rows":[{"resolution":"1024x1024","price":0.006}]}}`))
+	table, ok = GetImagePrice("img-resolution-default")
+	require.True(t, ok)
+	assert.Equal(t, "1024x1024", table.EffectiveDefaultResolution())
+}
+
+func TestImagePriceResolutionValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		jsonStr string
+	}{
+		{"mixed_rows", `{"m":{"rows":[{"tier":"standard","price":0.1},{"resolution":"1024x1024","price":0.1}]}}`},
+		{"resolution_with_tier", `{"m":{"rows":[{"tier":"standard","resolution":"1024x1024","price":0.1}]}}`},
+		{"invalid_resolution_format", `{"m":{"rows":[{"resolution":"1024","price":0.1}]}}`},
+		{"zero_dimension", `{"m":{"rows":[{"resolution":"0x1024","price":0.1}]}}`},
+		{"trailing_x", `{"m":{"rows":[{"resolution":"1024x","price":0.1}]}}`},
+		{"duplicate_resolution", `{"m":{"rows":[{"resolution":"1024x1024","price":0.1},{"resolution":"1024X1024","price":0.2}]}}`},
+		{"default_not_in_rows", `{"m":{"default_resolution":"1024x1024","rows":[{"resolution":"512x512","price":0.1}]}}`},
+		{"invalid_default_resolution", `{"m":{"default_resolution":"auto","rows":[{"resolution":"1024x1024","price":0.1}]}}`},
+		{"quality_table_with_default", `{"m":{"default_resolution":"1024x1024","rows":[{"tier":"standard","price":0.1}]}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Error(t, UpdateImagePriceByJSONString(tt.jsonStr))
+			_, ok := GetImagePrice("m")
+			require.False(t, ok)
+		})
+	}
+}

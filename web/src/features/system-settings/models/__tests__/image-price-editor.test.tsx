@@ -56,6 +56,12 @@ beforeAll(() => {
     Fast: 'Fast',
     Standard: 'Standard',
     High: 'High',
+    Resolution: 'Resolution',
+    'Pricing mode': 'Pricing mode',
+    'Quality tiers': 'Quality tiers',
+    'Default resolution': 'Default resolution',
+    'Add resolution': 'Add resolution',
+    Delete: 'Delete',
   })
 })
 
@@ -77,7 +83,9 @@ describe('image price editor fixed quality tiers', () => {
     expect(
       screen.queryByRole('button', { name: 'Add resolution' })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' })
+    ).not.toBeInTheDocument()
     // 每行一个价格输入框
     expect(screen.getAllByRole('textbox')).toHaveLength(3)
   })
@@ -110,8 +118,7 @@ describe('image price editor display currency', () => {
     expect(screen.getByText('Image price (¥/image)')).toBeInTheDocument()
 
     // 空档行的占位示例也按显示货币给出(0.02 USD 的本地示例)
-    const priceGroup = screen
-      .getByDisplayValue('5.475')
+    const priceGroup = screen.getByDisplayValue('5.475')
       .parentElement as HTMLElement
     expect(within(priceGroup).getByText('¥')).toBeInTheDocument()
     expect(screen.getAllByPlaceholderText('0.146')).toHaveLength(3)
@@ -123,8 +130,7 @@ describe('image price editor display currency', () => {
     expect(screen.getByDisplayValue('0.75')).toBeInTheDocument()
     expect(screen.getByText('Image price ($/image)')).toBeInTheDocument()
 
-    const priceGroup = screen
-      .getByDisplayValue('0.75')
+    const priceGroup = screen.getByDisplayValue('0.75')
       .parentElement as HTMLElement
     expect(within(priceGroup).getByText('$')).toBeInTheDocument()
     expect(screen.getAllByPlaceholderText('0.02')).toHaveLength(3)
@@ -166,5 +172,81 @@ describe('image price editor display currency', () => {
     expect(onChange).toHaveBeenLastCalledWith({
       rows: [{ tier: 'fast', price: 1.5 }],
     })
+  })
+})
+
+describe('image price editor resolution tables', () => {
+  const resolutionRow: ImagePriceTable = {
+    default_resolution: '1024x1024',
+    rows: [
+      { resolution: '1024x1024', price: 0.75 },
+      { resolution: '1536x1024', price: 1.5 },
+    ],
+  }
+
+  test('renders resolution rows with default, add and delete controls', () => {
+    render(<ImagePriceEditor table={resolutionRow} onChange={vi.fn()} />)
+
+    expect(screen.getAllByDisplayValue('1024x1024')).toHaveLength(2)
+    expect(screen.getAllByDisplayValue('1536x1024')).toHaveLength(1)
+    expect(screen.getAllByPlaceholderText('0.02')).toHaveLength(2)
+    expect(
+      screen.getByRole('button', { name: 'Add resolution' })
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2)
+  })
+
+  test('editing a resolution price emits a resolution table with default', () => {
+    const onChange = vi.fn()
+    render(<ImagePriceEditor table={resolutionRow} onChange={onChange} />)
+
+    const priceInputs = screen.getAllByPlaceholderText('0.02')
+    fireEvent.change(priceInputs[0], { target: { value: '1' } })
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      default_resolution: '1024x1024',
+      rows: [
+        { resolution: '1024x1024', price: 1 },
+        { resolution: '1536x1024', price: 1.5 },
+      ],
+    })
+  })
+
+  test('adding a resolution appends an empty editable row', () => {
+    render(<ImagePriceEditor table={resolutionRow} onChange={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add resolution' }))
+
+    expect(screen.getAllByPlaceholderText('1024x1024')).toHaveLength(4)
+  })
+
+  test('deleting a resolution emits the remaining row', () => {
+    const onChange = vi.fn()
+    render(<ImagePriceEditor table={resolutionRow} onChange={onChange} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0])
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      default_resolution: '1024x1024',
+      rows: [{ resolution: '1536x1024', price: 1.5 }],
+    })
+  })
+
+  test('switching from quality to resolution seeds 1024 with the standard price', () => {
+    const onChange = vi.fn()
+    render(
+      <ImagePriceEditor
+        table={{ rows: [{ tier: 'standard', price: 0.75 }] }}
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resolution' }))
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      default_resolution: '1024x1024',
+      rows: [{ resolution: '1024x1024', price: 0.75 }],
+    })
+    expect(screen.getAllByDisplayValue('1024x1024')).toHaveLength(2)
   })
 })

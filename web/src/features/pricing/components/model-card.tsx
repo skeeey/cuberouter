@@ -145,14 +145,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <div className='space-y-1'>
           {rows.map((row) => {
             const tierLabelKey = imagePriceTierLabelKey(row.tier)
+            let rowLabel = row.resolution
+            if (!rowLabel) {
+              rowLabel = tierLabelKey ? t(tierLabelKey) : row.tier
+            }
             return (
               <div
-                key={row.tier || row.price}
+                key={row.resolution || row.tier || row.price}
                 className='flex items-baseline justify-between gap-x-2 text-xs whitespace-nowrap'
               >
-                <span className='text-muted-foreground'>
-                  {tierLabelKey ? t(tierLabelKey) : row.tier}
-                </span>
+                <span className='text-muted-foreground'>{rowLabel}</span>
                 <span className='text-foreground font-mono tabular-nums'>
                   {formatVideoPriceMoney(row.price)}/{t('image')}
                 </span>

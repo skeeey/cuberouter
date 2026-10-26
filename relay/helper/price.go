@@ -33,6 +33,14 @@ func modelPriceNotConfiguredError(modelName string, userId int) error {
 	)
 }
 
+func unsupportedImageSizeError(modelName, size string, table *ratio_setting.ImagePriceTable) error {
+	supported := strings.Join(ratio_setting.SupportedImagePriceResolutions(table), ", ")
+	return fmt.Errorf(
+		"模型 %s 不支持分辨率 %s；支持的分辨率：%s。Model %s does not support size %s; supported sizes: %s.",
+		modelName, size, supported, modelName, size, supported,
+	)
+}
+
 // https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
 const claudeCacheCreation1hMultiplier = 6 / 3.75
 
@@ -170,16 +178,39 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		preConsumedQuota = quota
 	} else {
-		// 图片价格表已按画质档位定价(锚点为单张 USD 价),
+		// 图片价格表已按画质档位或分辨率定价(锚点为单张 USD 价),
 		// 旧 ImagePriceRatio(dall-e 硬编码 size/quality 系数)不得叠加。
 		if !hasImagePriceTable && meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
-		// 图片价格表:按请求 quality 档位推导计费系数并入 BillingRatios,
-		// 与预扣/结算的通用系数通道(含 "n")同一出口。表外档位(或请求
-		// 未带 quality)不加系数,即按锚点(最贵档)计费。
 		if hasImagePriceTable {
-			if tierRatio := ratio_setting.ImagePriceTierRatio(imagePriceTable, meta.ImageQuality); tierRatio > 0 && tierRatio != 1 {
+			// 分辨率表:按请求 size(缺省用表的默认分辨率)推导计费系数。
+			// 尺寸不在表内直接拒绝,避免未知尺寸按锚点便宜收费或大尺寸挂住实例。
+			if imagePriceTable.IsResolutionBased() {
+				rawSize := ""
+				if meta != nil {
+					rawSize = strings.TrimSpace(meta.ImageSize)
+				}
+				size := ratio_setting.NormalizeImagePriceResolution(rawSize)
+				if rawSize == "" {
+					size = imagePriceTable.EffectiveDefaultResolution()
+				} else if size == "" {
+					return hosttypes.PriceData{}, unsupportedImageSizeError(billingModelName, rawSize, imagePriceTable)
+				}
+				sizeRatio, ok := ratio_setting.ImagePriceResolutionRatio(imagePriceTable, size)
+				if !ok {
+					return hosttypes.PriceData{}, unsupportedImageSizeError(billingModelName, size, imagePriceTable)
+				}
+				if meta != nil && sizeRatio > 0 && sizeRatio != 1 {
+					if meta.BillingRatios == nil {
+						meta.BillingRatios = map[string]float64{}
+					}
+					meta.BillingRatios["size"] = sizeRatio
+				}
+			} else if tierRatio := ratio_setting.ImagePriceTierRatio(imagePriceTable, meta.ImageQuality); tierRatio > 0 && tierRatio != 1 {
+				// 画质表:按请求 quality 档位推导计费系数并入 BillingRatios,
+				// 与预扣/结算的通用系数通道(含 "n")同一出口。表外档位(或请求
+				// 未带 quality)不加系数,即按锚点(最贵档)计费。
 				if meta.BillingRatios == nil {
 					meta.BillingRatios = map[string]float64{}
 				}

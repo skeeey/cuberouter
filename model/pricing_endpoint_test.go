@@ -6,8 +6,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -454,4 +454,45 @@ func TestPricingModelTagDeclaresImageGenerationEndpoint(t *testing.T) {
 		constant.EndpointTypeImageGeneration,
 		constant.EndpointTypeOpenAI,
 	}, byModel["both-modes-model"])
+}
+
+func TestPricingImagePricesIncludesResolutionRows(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 503, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 503, "img-resolution")
+
+	previousOptionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateImagePriceByJSONString("{}"))
+		common.OptionMap = previousOptionMap
+	})
+
+	require.NoError(t, UpdateOption("ImagePrice", `{
+		"img-resolution": {
+			"default_resolution": "1024x1024",
+			"rows": [
+				{"resolution": "1024x1024", "price": 0.006},
+				{"resolution": "1536x1024", "price": 0.01}
+			]
+		}
+	}`))
+	InvalidatePricingCache()
+
+	var found *Pricing
+	pricings := GetPricing()
+	for i := range pricings {
+		pricing := pricings[i]
+		if pricing.ModelName == "img-resolution" {
+			found = &pricing
+			break
+		}
+	}
+	require.NotNil(t, found, "img-resolution should appear in pricing")
+	require.NotNil(t, found.ImagePrices)
+	assert.Equal(t, "1024x1024", found.ImagePrices.DefaultResolution)
+	require.Len(t, found.ImagePrices.Rows, 2)
+	assert.Equal(t, "1024x1024", found.ImagePrices.Rows[0].Resolution)
+	assert.Equal(t, 0.006, found.ImagePrices.Rows[0].Price)
 }

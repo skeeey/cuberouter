@@ -121,8 +121,12 @@ describe('getInitialPricingMode', () => {
   })
 
   test('keeps the existing tiered_expr, per-request and per-token detection', () => {
-    expect(getInitialPricingMode({ ...emptyValues, billingMode: 'tiered_expr' })).toBe('tiered_expr')
-    expect(getInitialPricingMode({ ...emptyValues, price: '0.01' })).toBe('per-request')
+    expect(
+      getInitialPricingMode({ ...emptyValues, billingMode: 'tiered_expr' })
+    ).toBe('tiered_expr')
+    expect(getInitialPricingMode({ ...emptyValues, price: '0.01' })).toBe(
+      'per-request'
+    )
     expect(getInitialPricingMode(emptyValues)).toBe('per-token')
     expect(getInitialPricingMode(null)).toBe('per-token')
   })
@@ -195,6 +199,37 @@ describe('buildPreviewRows video branch', () => {
     expect(rows).toEqual([
       { key: 'mode', label: 'Mode', value: 'Video per second' },
       { key: 'videoRows', label: 'Resolution', value: '1080p, 720p' },
+    ])
+  })
+
+  test('lists the configured resolutions for a resolution table', () => {
+    const resolutionTable: ImagePriceTable = {
+      default_resolution: '1024x1024',
+      rows: [
+        { resolution: '1024x1024', price: 0.006 },
+        { resolution: '1536x1024', price: 0.01 },
+      ],
+    }
+    const rows = buildPreviewRows(
+      emptyValues,
+      'image-per-image',
+      '',
+      '',
+      '',
+      EMPTY_LANE_PRICES,
+      EMPTY_LANE_ENABLED,
+      (key) => key,
+      undefined,
+      resolutionTable
+    )
+
+    expect(rows).toEqual([
+      { key: 'mode', label: 'Mode', value: 'Image per image' },
+      {
+        key: 'imageRows',
+        label: 'Resolution',
+        value: '1024x1024, 1536x1024',
+      },
     ])
   })
 
@@ -312,9 +347,7 @@ describe('buildPreviewRows 金额前缀随显示货币', () => {
       (key) => key
     )
 
-    expect(rows.find((row) => row.key === 'inputPrice')?.value).toBe(
-      '¥18.25'
-    )
+    expect(rows.find((row) => row.key === 'inputPrice')?.value).toBe('¥18.25')
     expect(rows.find((row) => row.key === 'completion')?.value).toBe('¥36.5')
     expect(rows.find((row) => row.key === 'cache')?.value).toBe('Empty')
   })

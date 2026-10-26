@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ImagePriceTier } from '../types'
+import type { ImagePriceTable, ImagePriceTier } from '../types'
 
 export type ImagePriceTierLabelKey = 'Fast' | 'Standard' | 'High'
 
@@ -34,13 +34,22 @@ export const IMAGE_PRICE_TIER_OPTIONS: ReadonlyArray<{
   { tier: 'high', labelKey: 'High' },
 ]
 
+/** 分辨率价格表未声明默认分辨率时的回退值，与后端一致。 */
+export const DEFAULT_IMAGE_PRICE_RESOLUTION = '1024x1024'
+
+/** 分辨率表:任一行带 resolution 即视为按分辨率计价。 */
+export function isResolutionImagePriceTable(table: ImagePriceTable): boolean {
+  return table.rows.some((row) => (row.resolution ?? '').trim() !== '')
+}
+
 /**
  * 档位 → i18n 标签键。未知档位(旧数据/后端异常值)返回 undefined,
- * 调用方回退展示原始 tier 字符串。
+ * 调用方回退展示原始 tier/resolution 字符串。
  */
 export function imagePriceTierLabelKey(
-  tier: string
+  tier?: string
 ): ImagePriceTierLabelKey | undefined {
+  if (!tier) return undefined
   return IMAGE_PRICE_TIER_OPTIONS.find((option) => option.tier === tier)
     ?.labelKey
 }

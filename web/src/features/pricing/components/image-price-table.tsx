@@ -23,8 +23,11 @@ import { StaticDataTable } from '@/components/data-table'
 import { useBillingCurrency } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
+import {
+  imagePriceTierLabelKey,
+  isResolutionImagePriceTable,
+} from '../lib/image-price'
 import { formatVideoPriceMoney } from '../lib/video-price'
-import { imagePriceTierLabelKey } from '../lib/image-price'
 import type { ImagePriceTable } from '../types'
 
 export interface ImagePriceTableProps {
@@ -47,6 +50,7 @@ export function ImagePriceTable(props: ImagePriceTableProps) {
   const symbol = useBillingCurrency().symbol
   const rows = props.table?.rows ?? []
   if (rows.length === 0) return null
+  const resolutionBased = isResolutionImagePriceTable(props.table)
 
   return (
     <StaticDataTable
@@ -57,14 +61,15 @@ export function ImagePriceTable(props: ImagePriceTableProps) {
       tableClassName={props.tableClassName ?? 'text-sm'}
       headerRowClassName='hover:bg-transparent'
       data={rows}
-      getRowKey={(row, index) => row.tier || `row-${index}`}
+      getRowKey={(row, index) => row.resolution || row.tier || `row-${index}`}
       columns={[
         {
           id: 'tier',
-          header: t('Quality'),
+          header: resolutionBased ? t('Resolution') : t('Quality'),
           className: headerCellClass,
           cellClassName: 'py-2 font-medium',
           cell: (row) => {
+            if (row.resolution) return row.resolution
             const labelKey = imagePriceTierLabelKey(row.tier)
             return labelKey ? t(labelKey) : row.tier
           },

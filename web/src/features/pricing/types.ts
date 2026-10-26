@@ -130,14 +130,20 @@ export type VideoPrice = Record<string, VideoPriceTable>
 /** Fixed quality tiers of a per-image price table (match the image request `quality` field). */
 export type ImagePriceTier = 'fast' | 'standard' | 'high'
 
-/** One quality tier of a per-image price table (USD per image at that tier). */
+/**
+ * One row of a per-image price table (USD per image).
+ * Quality-based tables set `tier`; resolution-based tables set `resolution` (WIDTHxHEIGHT).
+ */
 export type ImagePriceRow = {
-  tier: ImagePriceTier
+  tier?: ImagePriceTier
+  resolution?: string
   price: number
 }
 
 /** Per-image price table for a model (backend json field `image_prices`). */
 export type ImagePriceTable = {
+  /** Default resolution used when the request omits `size` (resolution tables only). */
+  default_resolution?: string
   rows: ImagePriceRow[]
 }
 

@@ -27,7 +27,10 @@ import {
 } from '@/stores/system-config-store'
 
 import {
+  addImagePriceResolutionDraft,
+  initialResolutionDrafts,
   rebaseImagePriceDrafts,
+  removeImagePriceRowDraft,
   updateImagePriceRowDraft,
   imagePriceDraftsFromTable,
   imagePriceTableFromDrafts,
@@ -55,7 +58,9 @@ function resetDisplayCurrency(): void {
   }))
 }
 
-function draft(overrides: Partial<ImagePriceRowDraft> = {}): ImagePriceRowDraft {
+function draft(
+  overrides: Partial<ImagePriceRowDraft> = {}
+): ImagePriceRowDraft {
   return { id: 'id', tier: 'fast', price: '', ...overrides }
 }
 
@@ -187,5 +192,77 @@ describe('rebaseImagePriceDrafts(汇率变化保留底层 USD 意图)', () => {
     const rebased = rebaseImagePriceDrafts(drafts, 7.3, 1)
 
     expect(rebased[0].price).toBe('.')
+  })
+})
+
+describe('image price drafts resolution tables', () => {
+  beforeEach(() => seedDisplayCurrency('CNY', 7.3))
+
+  test('加载:分辨率行按汇率转为显示货币,并保留分辨率', () => {
+    const drafts = imagePriceDraftsFromTable({
+      default_resolution: '1024x1024',
+      rows: [
+        { resolution: '1024x1024', price: 0.75 },
+        { resolution: '1536x1024', price: 1.5 },
+      ],
+    })
+
+    expect(drafts.map((entry) => entry.resolution)).toEqual([
+      '1024x1024',
+      '1536x1024',
+    ])
+    expect(drafts.map((entry) => entry.price)).toEqual(['5.475', '10.95'])
+  })
+
+  test('提交:分辨率草稿生成 rows + default_resolution', () => {
+    const table = imagePriceTableFromDrafts(
+      [
+        draft({ tier: undefined, resolution: ' 1024X1024 ', price: '5.475' }),
+        draft({ tier: undefined, resolution: '1536x1024', price: '10.95' }),
+        draft({ tier: undefined, resolution: '', price: '1' }),
+      ],
+      { mode: 'resolution', defaultResolution: '1024X1024' }
+    )
+
+    expect(table).toEqual({
+      default_resolution: '1024x1024',
+      rows: [
+        { resolution: '1024x1024', price: 0.75 },
+        { resolution: '1536x1024', price: 1.5 },
+      ],
+    })
+  })
+
+  test('往返:分辨率表 → 草稿 → 表数值稳定', () => {
+    const original: ImagePriceTable = {
+      default_resolution: '1024x1024',
+      rows: [
+        { resolution: '1024x1024', price: 0.75 },
+        { resolution: '1536x1024', price: 1.5 },
+      ],
+    }
+
+    const drafts = imagePriceDraftsFromTable(original)
+
+    expect(
+      imagePriceTableFromDrafts(drafts, {
+        mode: 'resolution',
+        defaultResolution: original.default_resolution,
+      })
+    ).toEqual(original)
+  })
+
+  test('分辨率行增删 helper', () => {
+    const initial = initialResolutionDrafts()
+    expect(initial).toHaveLength(1)
+    expect(initial[0].resolution).toBe('1024x1024')
+
+    const added = addImagePriceResolutionDraft(initial)
+    expect(added).toHaveLength(2)
+    expect(added[1].resolution).toBe('')
+
+    const removed = removeImagePriceRowDraft(added, added[0].id)
+    expect(removed).toHaveLength(1)
+    expect(removed[0].id).toBe(added[1].id)
   })
 })
