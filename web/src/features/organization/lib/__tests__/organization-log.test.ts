@@ -21,7 +21,9 @@ import { describe, expect, test } from 'vitest'
 
 import type { OrganizationLogRow } from '../../types'
 import {
+  organizationLogBillingMode,
   organizationLogModelInfo,
+  organizationLogOriginalQuota,
   organizationLogResponsibleName,
   organizationLogTimeRangeParams,
   organizationLogTimeWindow,
@@ -67,6 +69,53 @@ describe('organizationLogTypeMeta', () => {
       organizationLogTypeMeta(0)
     )
     expect(organizationLogTypeMeta(99)).toEqual(organizationLogTypeMeta(0))
+  })
+})
+
+describe('organizationLogBillingMode', () => {
+  test('a tiered expression wins over the ratio fields it also records', () => {
+    expect(
+      organizationLogBillingMode({
+        billing_mode: 'tiered_expr',
+        model_ratio: 0.8,
+      })
+    ).toBe('tiered_expr')
+  })
+
+  test('a positive model price is per-request billing', () => {
+    expect(organizationLogBillingMode({ model_price: 0.02 })).toBe(
+      'per_request'
+    )
+  })
+
+  test('a ratio-only record is ratio billing', () => {
+    expect(organizationLogBillingMode({ model_ratio: 1.2 })).toBe('ratio')
+  })
+
+  test('an unparsable or empty other has no billing mode', () => {
+    expect(organizationLogBillingMode(null)).toBeUndefined()
+    expect(organizationLogBillingMode({})).toBeUndefined()
+  })
+})
+
+describe('organizationLogOriginalQuota', () => {
+  test('divides the effective group ratio back out of the charge', () => {
+    expect(
+      organizationLogOriginalQuota({
+        quota: 80,
+        other: JSON.stringify({ group_ratio: 0.8 }),
+      })
+    ).toBe(100)
+  })
+
+  test('falls back to the charged quota without a usable ratio', () => {
+    expect(
+      organizationLogOriginalQuota({
+        quota: 80,
+        other: JSON.stringify({ group_ratio: 0 }),
+      })
+    ).toBe(80)
+    expect(organizationLogOriginalQuota({ quota: 80 })).toBe(80)
   })
 })
 

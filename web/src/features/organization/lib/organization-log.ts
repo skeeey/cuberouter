@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { StatusVariant } from '@/components/status-badge'
 import { parseLogOther } from '@/features/usage-logs/lib/format'
+import type { LogOtherData } from '@/features/usage-logs/types'
 
 import type { OrganizationLogRow } from '../types'
 
@@ -64,6 +65,61 @@ export function organizationLogTypeMeta(type?: number): {
       variant: 'grey',
     }
   )
+}
+
+export type OrganizationLogBillingMode = 'ratio' | 'per_request' | 'tiered_expr'
+
+export const ORGANIZATION_LOG_BILLING_MODE_LABELS: Record<
+  OrganizationLogBillingMode,
+  string
+> = {
+  ratio: 'Ratio',
+  per_request: 'Per Request',
+  tiered_expr: 'Expression',
+}
+
+/**
+ * How the request was billed.
+ *
+ * Only tiered billing writes its mode into the log; the other two are inferred
+ * from the pricing fields the relay always records. A per-request price wins
+ * over a ratio because the former is the mode the charge actually used.
+ */
+export function organizationLogBillingMode(
+  other: LogOtherData | null
+): OrganizationLogBillingMode | undefined {
+  if (!other) return undefined
+  if (other.billing_mode === 'tiered_expr') return 'tiered_expr'
+  if (typeof other.model_price === 'number' && other.model_price > 0) {
+    return 'per_request'
+  }
+  if (typeof other.model_ratio === 'number') return 'ratio'
+  return undefined
+}
+
+/**
+ * The charge before the effective group ratio was applied.
+ *
+ * `group_ratio` in the log is the multiplier actually used, with the user-model
+ * discount already folded in (see relay/helper/price.go). Dividing it back out
+ * restores the list price the token or per-request price would have produced.
+ * A row without a usable ratio keeps its charged amount rather than inventing
+ * one.
+ */
+export function organizationLogOriginalQuota(row: {
+  quota?: number
+  other?: string
+}): number {
+  const quota = row.quota ?? 0
+  const groupRatio = parseLogOther(row.other ?? '')?.group_ratio
+  if (
+    typeof groupRatio !== 'number' ||
+    !Number.isFinite(groupRatio) ||
+    groupRatio <= 0
+  ) {
+    return quota
+  }
+  return Math.round(quota / groupRatio)
 }
 
 // ============================================================================

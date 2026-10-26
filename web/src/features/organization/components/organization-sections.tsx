@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 import type { OrganizationDetailTabKey } from '../constants'
 import type { OrganizationDetail } from '../types'
 import { OrganizationAuditSection } from './organization-audit-section'
-import { OrganizationBillingSection } from './organization-billing-section'
 import { OrganizationInvitesSection } from './organization-invites-section'
 import { OrganizationLogsSection } from './organization-logs-section'
 import { OrganizationMembersSection } from './organization-members-section'
@@ -32,6 +31,7 @@ import { OrganizationSectionEmpty } from './organization-section'
 import { OrganizationSettingsSection } from './organization-settings-section'
 import { OrganizationTasksSection } from './organization-tasks-section'
 import { OrganizationTokensSection } from './organization-tokens-section'
+import { OrganizationUsageSection } from './organization-usage-section'
 
 type OrganizationSectionsProps = {
   detail: OrganizationDetail
@@ -148,7 +148,7 @@ export function OrganizationSections(props: OrganizationSectionsProps) {
       )
     case 'usage':
       return (
-        <OrganizationBillingSection
+        <OrganizationUsageSection
           organizationId={organization.id}
           canView={capabilities.can_view_organization_usage}
           canViewWideData={capabilities.can_view_organization_wide_data}

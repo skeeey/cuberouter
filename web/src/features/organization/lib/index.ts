@@ -181,13 +181,17 @@ export {
 // Logs
 // ============================================================================
 export {
+  organizationLogBillingMode,
   organizationLogModelInfo,
+  organizationLogOriginalQuota,
   organizationLogResponsibleName,
   organizationLogTimeRangeParams,
   organizationLogTimeWindow,
   organizationLogTokenName,
   organizationLogTypeMeta,
+  ORGANIZATION_LOG_BILLING_MODE_LABELS,
   ORGANIZATION_LOG_TYPE,
+  type OrganizationLogBillingMode,
   type OrganizationLogTimeRangeParams,
   type OrganizationLogTimeWindow,
 } from './organization-log'
