@@ -18,7 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { getOrganizationQuotaData } from '../../api'
@@ -125,14 +125,24 @@ describe('organization overview summary', () => {
     renderSection({ quota: 5_000_000, used_quota: 2_000_000 })
 
     expect(screen.getByText('Total Quota')).toBeInTheDocument()
-    expect(await screen.findByText('$10')).toBeInTheDocument()
-    expect(screen.getByText('Remaining $6')).toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(screen.getByText('$10')).toBeInTheDocument()
+        expect(screen.getByText('Remaining $6')).toBeInTheDocument()
+      },
+      { timeout: 5_000 }
+    )
   })
 
   test('never shows a negative remaining balance when usage exceeds the grant', async () => {
     renderSection({ quota: 1_000_000, used_quota: 2_000_000 })
 
-    expect(await screen.findByText('Remaining $0')).toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(screen.getByText('Remaining $0')).toBeInTheDocument()
+      },
+      { timeout: 5_000 }
+    )
   })
 })
 

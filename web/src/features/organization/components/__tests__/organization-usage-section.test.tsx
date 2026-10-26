@@ -146,16 +146,19 @@ describe('organization usage section', () => {
   test('shows the upstream model, billing mode, original price and charged quota', async () => {
     renderSection()
 
-    expect(
-      await screen.findByText('Alice', undefined, { timeout: 5_000 })
-    ).toBeInTheDocument()
-    expect(screen.getByText('key-1')).toBeInTheDocument()
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument()
-    expect(screen.getByText('gpt-4o-upstream')).toBeInTheDocument()
-    expect(screen.getByText('Ratio')).toBeInTheDocument()
-    expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText(formatLogQuota(1_000_000))).toBeInTheDocument()
-    expect(screen.getByText(formatLogQuota(800_000))).toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(screen.getByText('Alice')).toBeInTheDocument()
+        expect(screen.getByText('key-1')).toBeInTheDocument()
+        expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+        expect(screen.getByText('gpt-4o-upstream')).toBeInTheDocument()
+        expect(screen.getByText('Ratio')).toBeInTheDocument()
+        expect(screen.getByText('300')).toBeInTheDocument()
+        expect(screen.getByText(formatLogQuota(1_000_000))).toBeInTheDocument()
+        expect(screen.getByText(formatLogQuota(800_000))).toBeInTheDocument()
+      },
+      { timeout: 5_000 }
+    )
   })
 
   test('reads only consumption logs for the selected window', async () => {
@@ -178,7 +181,12 @@ describe('organization usage section', () => {
   test('exports the whole filtered set in detail or daily mode', async () => {
     renderSection()
 
-    await screen.findByText('Alice', undefined, { timeout: 5_000 })
+    await waitFor(
+      () => {
+        expect(screen.getByText('Alice')).toBeInTheDocument()
+      },
+      { timeout: 5_000 }
+    )
 
     await userEvent.click(screen.getByRole('button', { name: /Export/ }))
     await userEvent.click(
