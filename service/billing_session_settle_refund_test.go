@@ -113,6 +113,7 @@ func TestPostTextConsumeQuotaMarksSettleFailure(t *testing.T) {
 	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeConsume).Order("id desc").First(&entry).Error)
 	assert.Greater(t, entry.Quota, 0, "日志仍如实记录应扣额度")
 	assert.Contains(t, entry.Other, `"settle_failed":true`)
+	assert.Contains(t, entry.Other, "simulated funding settle failure", "结算失败的具体错误要能查询")
 	assert.Contains(t, entry.Content, "结算失败")
 }
 

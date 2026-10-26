@@ -303,7 +303,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	case <-c.Request.Context().Done():
 		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
 		// 避免为已放弃的请求继续消费上游 token。
+		//
+		// TODO(policy-b): 当前是 A 策略（断开止损），final usage 会丢失；如果以后要按
+		// “上游有 usage 就计费”处理流式，需要改成 drain：停止写客户端、继续读上游到
+		// [DONE]/EOF，拿 final usage 后再 settle。目前没有真实 case，先保持现状并打日志。
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		logger.LogWarn(c, fmt.Sprintf(
+			"stream client disconnected; closing upstream before final usage (request_id=%s model=%s received=%d)",
+			info.RequestId, info.OriginModelName, info.ReceivedResponseCount,
+		))
 	}
 
 	cleanup()

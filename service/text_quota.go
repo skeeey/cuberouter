@@ -455,11 +455,25 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	settleErr := SettleBilling(ctx, relayInfo, summary.Quota)
 	if settleErr != nil {
-		logger.LogError(ctx, "error settling billing: "+settleErr.Error())
+		logger.LogError(ctx, fmt.Sprintf(
+			"error settling billing: request_id=%s model=%s channel=%d quota=%d error=%v",
+			relayInfo.RequestId, summary.ModelName, relayInfo.ChannelId, summary.Quota, settleErr,
+		))
 		// 结算失败意味着资金来源没有提交，这笔钱没收到（controller 的退款 defer 会把
 		// 预扣全额退回）。日志仍如实记录本次请求，但必须留下标记，否则对账会把没收到
 		// 的钱算成收入。
 		extraContent = append(extraContent, "结算失败，额度未实际扣减")
+	}
+	if ctx != nil && ctx.Request != nil && ctx.Request.Context().Err() != nil {
+		outcome := "settled"
+		if settleErr != nil {
+			outcome = "settle_failed"
+		}
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"client disconnected before settlement; request_id=%s model=%s channel=%d prompt=%d completion=%d quota=%d outcome=%s",
+			relayInfo.RequestId, summary.ModelName, relayInfo.ChannelId,
+			summary.PromptTokens, summary.CompletionTokens, summary.Quota, outcome,
+		))
 	}
 
 	logModel := summary.ModelName
@@ -488,6 +502,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if settleErr != nil {
 		other["settle_failed"] = true
+		other["settle_error"] = settleErr.Error()
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {

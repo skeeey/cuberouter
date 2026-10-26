@@ -70,6 +70,14 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+// startRelayOrganizationBillingHeartbeat keeps the organization billing session
+// alive for the whole relay lifetime. Streaming paths renew the session on every
+// chunk; non-streaming upstreams can run for many minutes and would otherwise be
+// refunded by the repair task before they settle.
+func startRelayOrganizationBillingHeartbeat(relayInfo *relaycommon.RelayInfo) func() {
+	return service.StartOrganizationBillingSessionHeartbeat(relayInfo)
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -179,6 +187,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 	}
+
+	// 非流式长请求没有 chunk 可以触发续租；不启动心跳的话，修复协程会在
+	// 会话 TTL（StreamingTimeout*2）到期时把仍在进行的预扣当成孤儿退款。
+	stopOrganizationBillingHeartbeat := startRelayOrganizationBillingHeartbeat(relayInfo)
+	defer stopOrganizationBillingHeartbeat()
 
 	defer func() {
 		// Only return quota if downstream failed and quota was actually pre-consumed
