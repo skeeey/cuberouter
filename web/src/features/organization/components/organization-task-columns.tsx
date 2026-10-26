@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
 
+import { StatusBadge } from '@/components/status-badge'
+import { taskActionMapper } from '@/features/usage-logs/lib/mappers'
 import { formatQuota } from '@/lib/format'
 
 import {
@@ -31,10 +33,12 @@ import {
  * A row these columns can describe.
  *
  * Stated structurally rather than as one of the two task rows, because both task
- * tables add the same three columns over two different records. Every field here
+ * tables add the same columns over two different records. Every field here
  * exists on both.
  */
 export type OrganizationTaskColumnRow = {
+  task_id?: string
+  action?: string
   responsible_name?: string
   creator_name?: string
   responsible_user_id?: number
@@ -43,36 +47,75 @@ export type OrganizationTaskColumnRow = {
   token_name?: string
   token_id?: number
   quota?: number
+  original_quota?: number
 }
 
 /**
  * The columns the organization adds to a task table.
  *
  * The shared task columns come from the usage-logs feature and describe the task
- * itself — when, how long, in what state, on which artifacts. None of them can
- * say *whose* work it was or what it cost, because on a personal page both
- * answers are already implied by who is looking. Here they are not.
+ * itself. None of them can say *whose* work it was, what it was, or what it
+ * cost, because on a personal page those answers are already implied by who is
+ * looking. Here they are not.
  *
- * They are returned as one group so the two tables put them in the same place:
- * directly after the column that identifies the task, before the columns that
- * describe it. A reader scanning a row should meet the row's identity, then who
- * it belongs to, then what it did.
+ * The task id and type are optional because the Midjourney table has its own
+ * identifier and action set; the async task table turns both on.
  */
 export function buildOrganizationTaskColumns<
   T extends OrganizationTaskColumnRow,
 >(options: {
-  /**
-   * The caller reads every member's tasks, not just their own.
-   *
-   * Without it the backend pins both lists to the caller, so this column would
-   * repeat one name down the table. The key and the cost stay: they still say
-   * which of the caller's own keys was used and what it was charged.
-   */
+  /** The caller reads every member's tasks, not just their own. */
   showMember: boolean
+  /** Show the upstream task id, which is also the task ID search key. */
+  showTaskId?: boolean
+  /** Show the task action, e.g. Image to Video. */
+  showType?: boolean
   translate: Translate
 }): ColumnDef<T>[] {
   const { translate } = options
   const columns: ColumnDef<T>[] = []
+
+  if (options.showTaskId) {
+    columns.push({
+      id: 'task_id',
+      header: translate('Task ID'),
+      size: 210,
+      cell: ({ row }) => {
+        const taskId = row.original.task_id
+        if (!taskId) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+        return (
+          <StatusBadge
+            label={taskId}
+            copyText={taskId}
+            variant='neutral'
+            size='sm'
+            className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
+          />
+        )
+      },
+    })
+  }
+
+  if (options.showType) {
+    columns.push({
+      id: 'action',
+      header: translate('Type'),
+      size: 150,
+      cell: ({ row }) => {
+        const action = row.original.action
+        if (!action) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+        return (
+          <span className='text-sm whitespace-nowrap'>
+            {translate(taskActionMapper.getLabel(action))}
+          </span>
+        )
+      },
+    })
+  }
 
   if (options.showMember) {
     columns.push({
@@ -99,13 +142,23 @@ export function buildOrganizationTaskColumns<
       ),
     },
     {
-      id: 'cost',
-      header: translate('Cost'),
+      id: 'original_quota',
+      header: translate('Original price'),
       size: 110,
       cell: ({ row }) => (
-        // Absent on a row the organization never charged for — a task that was
-        // submitted and failed before it cost anything reads as zero, not as a
-        // missing figure.
+        // The original charge is the same as the charged amount for rows
+        // written before the billing context existed, or for a task that never
+        // cost anything.
+        <span className='tabular-nums'>
+          {formatQuota(row.original.original_quota ?? row.original.quota ?? 0)}
+        </span>
+      ),
+    },
+    {
+      id: 'quota',
+      header: translate('Discounted price'),
+      size: 110,
+      cell: ({ row }) => (
         <span className='tabular-nums'>
           {formatQuota(row.original.quota ?? 0)}
         </span>

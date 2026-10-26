@@ -17,35 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-
-import {
-  normalizeOrganizationTaskPanel,
-  ORGANIZATION_TASK_PANELS,
-  type OrganizationTaskPanel,
-} from '../lib'
-import { OrganizationMidjourneyTaskList } from './organization-midjourney-task-list'
-import { useOrganizationSectionRoute } from './organization-page-provider'
 import {
   OrganizationSection,
   OrganizationSectionEmpty,
 } from './organization-section'
 import { OrganizationTaskList } from './organization-task-list'
-
-/**
- * The two task tables.
- *
- * An async task and a Midjourney task are separate records with separate
- * endpoints, separate filters and — awkwardly — separate units for the same
- * timestamp, so they are panels rather than one table with a type column.
- */
-const PANEL_LABELS: Record<OrganizationTaskPanel, string> = {
-  tasks: 'Async tasks',
-  midjourney: 'Midjourney',
-}
 
 type OrganizationTasksSectionProps = {
   organizationId: number
@@ -54,7 +32,7 @@ type OrganizationTasksSectionProps = {
   /**
    * The caller reads every member's tasks, not just their own.
    *
-   * Without it the backend pins both lists to the caller, so the holder column
+   * Without it the backend pins the list to the caller, so the holder column
    * would repeat one name down the table.
    */
   canViewWideData: boolean
@@ -65,15 +43,13 @@ type OrganizationTasksSectionProps = {
 /**
  * What the organization's keys submitted, and what it cost.
  *
- * The open panel lives in the URL for the same reason the usage tab's does: the
- * panels hold their filters in the URL, and a link that names a filter without
- * naming the panel it belongs to would open a view where nothing appears to be
- * filtered.
+ * Midjourney is temporarily disabled: the platform has no Midjourney upstream,
+ * so the section deliberately has no tab strip while there is only one panel.
+ * `OrganizationMidjourneyTaskList` and its endpoint remain for the day it is
+ * re-enabled.
  */
 export function OrganizationTasksSection(props: OrganizationTasksSectionProps) {
   const { t } = useTranslation()
-  const { search, navigate } = useOrganizationSectionRoute()
-  const panel = normalizeOrganizationTaskPanel(search.taskTab)
 
   if (!props.canView) {
     return (
@@ -87,23 +63,6 @@ export function OrganizationTasksSection(props: OrganizationTasksSectionProps) {
     )
   }
 
-  const panels = {
-    tasks: (
-      <OrganizationTaskList
-        organizationId={props.organizationId}
-        canViewWideData={props.canViewWideData}
-        onForbidden={props.onForbidden}
-      />
-    ),
-    midjourney: (
-      <OrganizationMidjourneyTaskList
-        organizationId={props.organizationId}
-        canViewWideData={props.canViewWideData}
-        onForbidden={props.onForbidden}
-      />
-    ),
-  } satisfies Record<OrganizationTaskPanel, ReactNode>
-
   return (
     <OrganizationSection
       icon='tasks'
@@ -111,30 +70,13 @@ export function OrganizationTasksSection(props: OrganizationTasksSectionProps) {
       description={t(
         'What the organization submitted through its keys, and what each task cost.'
       )}
-      actions={
-        <Tabs
-          value={panel}
-          onValueChange={(value) =>
-            void navigate({
-              search: (previous) => ({
-                ...previous,
-                taskTab: normalizeOrganizationTaskPanel(value),
-              }),
-            })
-          }
-        >
-          <TabsList>
-            {ORGANIZATION_TASK_PANELS.map((key) => (
-              <TabsTrigger key={key} value={key}>
-                {t(PANEL_LABELS[key])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      }
       scroll
     >
-      {panels[panel]}
+      <OrganizationTaskList
+        organizationId={props.organizationId}
+        canViewWideData={props.canViewWideData}
+        onForbidden={props.onForbidden}
+      />
     </OrganizationSection>
   )
 }

@@ -477,6 +477,8 @@ export interface OrganizationTaskRow {
   group?: string
   channel_id?: number
   quota: number
+  /** Charge before the effective group ratio; populated by the organization task endpoint. */
+  original_quota?: number
   token_id?: number
   token_name?: string
   token_unlimited?: boolean
