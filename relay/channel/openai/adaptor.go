@@ -530,7 +530,6 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		var requestBody bytes.Buffer
 		writer := multipart.NewWriter(&requestBody)
 
-		writer.WriteField("model", request.Model)
 		// 使用已解析的 multipart 表单，避免重复解析
 		mf := c.Request.MultipartForm
 		if mf == nil {
@@ -542,16 +541,70 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			c.Request.PostForm = url.Values(form.Value)
 			mf = form
 		}
+		if mf == nil {
+			return nil, errors.New("no multipart form data found")
+		}
 
-		// 写入所有非文件字段
-		if mf != nil {
-			for key, values := range mf.Value {
-				if key == "model" {
-					continue
+		// ImageHelper 对 *bytes.Buffer 会跳过 JSON 的 param_override（见
+		// relay/image_handler.go）；multipart 编辑仍应遵守同一份渠道配置，
+		// 否则 output_format/response_format 等字段只能靠客户端自己带。
+		formValues := make(map[string]interface{}, len(mf.Value)+1)
+		formValues["model"] = request.Model
+		for key, values := range mf.Value {
+			if key == "model" {
+				continue
+			}
+			if len(values) == 1 {
+				formValues[key] = values[0]
+			} else {
+				formValues[key] = values
+			}
+		}
+		if info != nil && info.ChannelMeta != nil && len(info.ChannelMeta.ParamOverride) > 0 {
+			raw, err := common.Marshal(formValues)
+			if err != nil {
+				return nil, fmt.Errorf("marshal image edit form: %w", err)
+			}
+			raw, err = relaycommon.ApplyParamOverrideWithRelayInfo(raw, info)
+			if err != nil {
+				return nil, err
+			}
+			var overridden map[string]interface{}
+			if err := common.Unmarshal(raw, &overridden); err != nil {
+				return nil, fmt.Errorf("unmarshal image edit form override: %w", err)
+			}
+			if overridden != nil {
+				formValues = overridden
+			}
+		}
+
+		// model 保持原有行为：优先使用覆盖后的值，缺失时回退到 request.Model。
+		modelValue := request.Model
+		if value, ok := formValues["model"]; ok {
+			modelValue = fmt.Sprint(value)
+			delete(formValues, "model")
+		}
+		writer.WriteField("model", modelValue)
+		for key, value := range formValues {
+			switch values := value.(type) {
+			case nil:
+				continue
+			case string:
+				writer.WriteField(key, values)
+			case []string:
+				for _, item := range values {
+					writer.WriteField(key, item)
 				}
-				for _, value := range values {
-					writer.WriteField(key, value)
+			case []interface{}:
+				for _, item := range values {
+					switch item.(type) {
+					case string, float64, bool:
+						writer.WriteField(key, fmt.Sprint(item))
+					}
 				}
+			default:
+				// 表单字段只能是标量或重复标量；覆盖产生的嵌套结构不写入。
+				continue
 			}
 		}
 
