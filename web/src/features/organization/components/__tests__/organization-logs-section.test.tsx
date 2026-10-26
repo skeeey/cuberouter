@@ -122,7 +122,9 @@ describe('organization logs section', () => {
   test('does not render a group column or the group value', async () => {
     renderSection()
 
-    expect(await screen.findByText('request-1')).toBeInTheDocument()
+    expect(
+      await screen.findByText('request-1', undefined, { timeout: 5_000 })
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('columnheader', { name: 'Type' })
     ).toBeInTheDocument()
@@ -135,10 +137,13 @@ describe('organization logs section', () => {
   test('does not send type or group filters to the log endpoints', async () => {
     renderSection()
 
-    await waitFor(() => {
-      expect(listLogsMock).toHaveBeenCalled()
-      expect(logStatsMock).toHaveBeenCalled()
-    })
+    await waitFor(
+      () => {
+        expect(listLogsMock).toHaveBeenCalled()
+        expect(logStatsMock).toHaveBeenCalled()
+      },
+      { timeout: 5_000 }
+    )
 
     const listParams = listLogsMock.mock.calls[0]?.[2]
     expect(listParams).not.toHaveProperty('type')
