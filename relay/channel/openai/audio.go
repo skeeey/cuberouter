@@ -115,6 +115,40 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	return usage
 }
 
+// sttUsage 是语音转写响应里的 usage。OpenAI 语义为 {type:"tokens",...}；
+// 按音频时长计费的上游（如 MOSS）返回
+// {type:"duration", seconds, input_audio_seconds, prompt_tokens,...}。
+type sttUsage struct {
+	dto.Usage
+	Type              string  `json:"type"`
+	Seconds           float64 `json:"seconds"`
+	InputAudioSeconds float64 `json:"input_audio_seconds"`
+}
+
+// durationBilledSTTUsage 把按音频时长计费的上游 usage 折算成 whisper-1 口径的
+// token（1000 token/分钟）。这类上游回显的 prompt_tokens 与音频秒数不成比例，
+// 直接采信会让按秒/小时定价的扣费随音频长度漂移；预扣本来就按上传文件时长
+// 以同一口径估算，折算后预扣与结算一致。缺时长或时长为 0 时返回 nil，
+// 回退到上游 token。
+func durationBilledSTTUsage(usage *sttUsage) *dto.Usage {
+	if usage == nil || usage.Type != "duration" {
+		return nil
+	}
+	seconds := usage.InputAudioSeconds
+	if seconds <= 0 {
+		seconds = usage.Seconds
+	}
+	if seconds <= 0 {
+		return nil
+	}
+	// 时长来自上游，可能被伪造成天文数字；QuotaRound 在单请求上限饱和。
+	tokens := common.QuotaRound(math.Ceil(seconds) / 60.0 * 1000)
+	return &dto.Usage{
+		PromptTokens: tokens,
+		TotalTokens:  tokens,
+	}
+}
+
 func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, responseFormat string) (*types.NewAPIError, *dto.Usage) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -126,9 +160,12 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	var responseData struct {
-		Usage *dto.Usage `json:"usage"`
+		Usage *sttUsage `json:"usage"`
 	}
 	if err := common.Unmarshal(responseBody, &responseData); err == nil && responseData.Usage != nil {
+		if durationUsage := durationBilledSTTUsage(responseData.Usage); durationUsage != nil {
+			return nil, durationUsage
+		}
 		if responseData.Usage.TotalTokens > 0 {
 			usage := responseData.Usage
 			if usage.PromptTokens == 0 {
@@ -137,7 +174,7 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 			if usage.CompletionTokens == 0 {
 				usage.CompletionTokens = usage.OutputTokens
 			}
-			return nil, usage
+			return nil, &usage.Usage
 		}
 	}
 
