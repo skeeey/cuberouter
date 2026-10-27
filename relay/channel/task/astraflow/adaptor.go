@@ -173,6 +173,11 @@ func init() {
 		"sound":   {Type: "string", Enum: []string{klingSoundOn, klingSoundOff}},
 		"variant": {Type: "string", Enum: []string{klingTypeT2V, klingTypeI2V, klingTypeMotion}},
 	})
+	billingexpr.RegisterTaskUsageSchema(isH3Model, map[string]billingexpr.UsageFieldSchema{
+		"seconds":      {Type: "number", Unit: "second"},
+		"resolution":   {Type: "string", Enum: []string{"768P", "2K"}},
+		"input_images": {Type: "number", Unit: "count"},
+	})
 }
 
 type submitResponseBody struct {
@@ -259,6 +264,8 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		body, err = a.convertKlingRequestPayload(&req, model)
 	case isWanModel(model):
 		body, err = deriveWanRequest(&req, model)
+	case isH3Model(model):
+		body, _, err = a.deriveH3Request(&req, model)
 	default:
 		body, err = a.convertToRequestPayload(&req)
 	}
@@ -1028,6 +1035,182 @@ func deriveWanMedia(req *relaycommon.TaskSubmitReq) []wanMedia {
 	return media
 }
 
+// ============================
+// MiniMax-H3 家族：minimax-h3（上游 MiniMax-H3）
+// ============================
+
+const (
+	// h3DefaultResolution / h3DefaultSec 显式下发：上游 resolution 必填，
+	// 缺省按最便宜的 768P 计；时长与计费事实共用同一份缺省，避免漂移。
+	h3DefaultResolution = "768P"
+	h3DefaultSec        = 5
+	h3MinSec            = 4
+	h3MaxSec            = 15
+	// 文生视频必填比例且不能 adaptive（上游 400）；缺省 16:9。
+	h3DefaultRatio = "16:9"
+	// 输入图片 5 张以内免费，超出部分按张计费（上游 image_input>5 计价）。
+	h3FreeInputImages = 5
+	// 参考图上限 9 张（上游文档口径），超出在预扣费前拒绝。
+	h3MaxInputImages = 9
+)
+
+var h3Ratios = map[string]bool{"16:9": true, "4:3": true, "1:1": true, "3:4": true, "9:16": true, "21:9": true}
+
+// isH3Model 精确匹配 MiniMax-H3 视频模型（站点名 minimax-h3 与上游名
+// MiniMax-H3 大小写不敏感地视为同名）。不用前缀兜底：上游还有
+// minimax-h3-context-ir（按 token 计费的文本模型）与 MiniMax-H3-Max /
+// minimax-h3-lite（价格档位不同），口径需各自探测后再接入。
+func isH3Model(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), "minimax-h3")
+}
+
+// normalizeH3Resolution 把请求分辨率归一到上游唯一接受的 768P/2K 档位。
+// 与百炼 H3 插件同一口径：720p/1080p 等档位或尺寸按短边归档
+// （≥1440 → 2K，≥640 → 768P），保证发给上游的档位与计费档位一致。
+func normalizeH3Resolution(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return h3DefaultResolution, nil
+	}
+	upper := strings.ToUpper(raw)
+	if upper == "768P" || upper == "2K" {
+		return upper, nil
+	}
+	shortSide := 0
+	if tier, ok := strings.CutSuffix(upper, "P"); ok {
+		if n, err := strconv.Atoi(tier); err == nil {
+			shortSide = n
+		}
+	} else if parts := strings.FieldsFunc(upper, func(r rune) bool { return r == 'X' || r == '*' || r == '×' }); len(parts) == 2 {
+		w, errW := strconv.Atoi(parts[0])
+		h, errH := strconv.Atoi(parts[1])
+		if errW == nil && errH == nil {
+			shortSide = min(w, h)
+		}
+	}
+	switch {
+	case shortSide >= 1440:
+		return "2K", nil
+	case shortSide >= 640:
+		return "768P", nil
+	default:
+		return "", fmt.Errorf("minimax-h3: unsupported resolution %q; MiniMax-H3 supports 768P or 2K", raw)
+	}
+}
+
+// deriveH3Request 同时产出 MiniMax-H3 的提交体与计费事实（tiered_expr 的
+// u() 变量）：seconds/resolution/input_images。请求成形沿用 Ark content
+// 数组，但与 seedance 的缺省不同：resolution 必填（缺省补 768P）、文生视频
+// ratio 必填且不能 adaptive、首/尾帧模式不下发 ratio、时长限制 4~15 秒。
+// 两条链路共用同一份推导，避免"发给上游的参数"与"计费读取的档位"漂移。
+func (a *TaskAdaptor) deriveH3Request(req *relaycommon.TaskSubmitReq, model string) (*requestPayload, map[string]any, error) {
+	payload, err := a.convertToRequestPayload(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	payload.Model = model
+
+	resolution, err := normalizeH3Resolution(payload.Parameters.Resolution)
+	if err != nil {
+		return nil, nil, err
+	}
+	payload.Parameters.Resolution = resolution
+
+	if payload.Parameters.Duration == nil {
+		payload.Parameters.Duration = lo.ToPtr(dto.IntValue(h3DefaultSec))
+	}
+	seconds := int(*payload.Parameters.Duration)
+	if seconds < h3MinSec || seconds > h3MaxSec {
+		return nil, nil, fmt.Errorf("minimax-h3: duration %d out of range [%d, %d]", seconds, h3MinSec, h3MaxSec)
+	}
+
+	// 无角色图片按张数补角色（1 张首帧、2 张首尾帧、3 张及以上参考图），
+	// 与百炼 H3 插件一致；显式 role 原样保留，不在网关侧改写。
+	imageItems := make([]*ContentItem, 0, len(payload.Input.Content))
+	for i := range payload.Input.Content {
+		if payload.Input.Content[i].Type == "image_url" {
+			imageItems = append(imageItems, &payload.Input.Content[i])
+		}
+	}
+	if len(imageItems) > h3MaxInputImages {
+		return nil, nil, fmt.Errorf("minimax-h3: too many input images (%d, max %d)", len(imageItems), h3MaxInputImages)
+	}
+	hasExplicitRole := false
+	for _, item := range imageItems {
+		if item.Role != nil && strings.TrimSpace(*item.Role) != "" {
+			hasExplicitRole = true
+			break
+		}
+	}
+	if !hasExplicitRole {
+		for i, item := range imageItems {
+			switch {
+			case len(imageItems) == 1:
+				item.Role = lo.ToPtr("first_frame")
+			case len(imageItems) == 2 && i == 0:
+				item.Role = lo.ToPtr("first_frame")
+			case len(imageItems) == 2:
+				item.Role = lo.ToPtr("last_frame")
+			default:
+				item.Role = lo.ToPtr("reference_image")
+			}
+		}
+	}
+
+	hasFrameImage, hasReferenceMedia := false, false
+	for _, item := range payload.Input.Content {
+		role := ""
+		if item.Role != nil {
+			role = strings.TrimSpace(*item.Role)
+		}
+		switch item.Type {
+		case "image_url":
+			if role == "reference_image" {
+				hasReferenceMedia = true
+			} else {
+				hasFrameImage = true
+			}
+		case "video_url", "audio_url":
+			hasReferenceMedia = true
+		}
+	}
+
+	// 首/尾帧与参考素材互斥（上游约束）：在预扣费前拒绝，避免任务执行期失败。
+	if hasFrameImage && hasReferenceMedia {
+		return nil, nil, fmt.Errorf("minimax-h3: first_frame/last_frame cannot be mixed with reference media")
+	}
+
+	// 比例规则：首/尾帧输出比例由输入图决定（不发 ratio）；参考场景可选，
+	// adaptive 视为未指定；文生视频必填且不能 adaptive。
+	switch {
+	case hasFrameImage:
+		payload.Parameters.Ratio = ""
+	case hasReferenceMedia:
+		if payload.Parameters.Ratio == "adaptive" {
+			payload.Parameters.Ratio = ""
+		}
+		if payload.Parameters.Ratio != "" && !h3Ratios[payload.Parameters.Ratio] {
+			return nil, nil, fmt.Errorf("minimax-h3: unsupported ratio %q; pick one of 16:9, 4:3, 1:1, 3:4, 9:16, 21:9", payload.Parameters.Ratio)
+		}
+	default:
+		if payload.Parameters.Ratio == "" || payload.Parameters.Ratio == "adaptive" {
+			if req.Ratio != nil && *req.Ratio == "adaptive" {
+				return nil, nil, fmt.Errorf("minimax-h3: ratio must not be adaptive for text-to-video; pick one of 16:9, 4:3, 1:1, 3:4, 9:16, 21:9")
+			}
+			payload.Parameters.Ratio = h3DefaultRatio
+		} else if !h3Ratios[payload.Parameters.Ratio] {
+			return nil, nil, fmt.Errorf("minimax-h3: unsupported ratio %q; pick one of 16:9, 4:3, 1:1, 3:4, 9:16, 21:9", payload.Parameters.Ratio)
+		}
+	}
+
+	facts := map[string]any{
+		"seconds":      float64(seconds),
+		"resolution":   resolution,
+		"input_images": float64(max(0, len(imageItems)-h3FreeInputImages)),
+	}
+	return payload, facts, nil
+}
+
 // ExtractUsageFacts 是计费事实接口的兼容包装（tiered 闸门按
 // TaskUsageFactsProvider 判定，故两个接口都要实现）。
 func (a *TaskAdaptor) ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayInfo) map[string]any {
@@ -1039,7 +1222,8 @@ func (a *TaskAdaptor) ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayI
 }
 
 // ExtractUsageFactsValidated 为 tiered_expr 任务计费提供事实：kling 家族给出
-// seconds/mode/sound/variant|reference；其余模型返回空事实（非本适配器职责）。
+// seconds/mode/sound/variant|reference；MiniMax-H3 给出
+// seconds/resolution/input_images；其余模型返回空事实（非本适配器职责）。
 func (a *TaskAdaptor) ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error) {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
@@ -1049,8 +1233,16 @@ func (a *TaskAdaptor) ExtractUsageFactsValidated(c *gin.Context, info *relaycomm
 	if info != nil && info.UpstreamModelName != "" {
 		model = info.UpstreamModelName
 	}
-	if !isKlingModel(model) {
+	switch {
+	case isH3Model(model):
+		_, facts, err := a.deriveH3Request(&req, model)
+		if err != nil {
+			return nil, err
+		}
+		return facts, nil
+	case isKlingModel(model):
+		return klingUsageFacts(&req, model)
+	default:
 		return map[string]any{}, nil
 	}
-	return klingUsageFacts(&req, model)
 }
