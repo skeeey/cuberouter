@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -95,6 +96,132 @@ type responseTask struct {
 }
 
 // ============================
+// Billing facts
+// ============================
+
+// init 注册 Seedance 标准版的计费事实 schema：tiered_expr 保存时按此校验
+// u() 键，并生成冒烟测试向量。2.5 不支持 4K，2.0 标准版支持 4K；fast/mini
+// 的单价不同，不在此 schema 范围内。
+func init() {
+	billingexpr.RegisterTaskUsageSchema(isSeedance25Model, map[string]billingexpr.UsageFieldSchema{
+		"tokens":      {Type: "number", Unit: "token"},
+		"resolution":  {Type: "string", Enum: []string{"480p", "720p", "1080p"}},
+		"video_input": {Type: "string", Enum: []string{"none", "video"}},
+		"unit_price":  {Type: "number", Unit: "USD/1M tokens"},
+	})
+	billingexpr.RegisterTaskUsageSchema(isSeedance20Model, map[string]billingexpr.UsageFieldSchema{
+		"tokens":      {Type: "number", Unit: "token"},
+		"resolution":  {Type: "string", Enum: []string{"480p", "720p", "1080p", "4k"}},
+		"video_input": {Type: "string", Enum: []string{"none", "video"}},
+		"unit_price":  {Type: "number", Unit: "USD/1M tokens"},
+	})
+}
+
+type seedanceRequestSettings struct {
+	Resolution string
+	Duration   int
+	HasVideo   bool
+}
+
+// deriveSeedanceRequestSettings 统一推导请求的生效分辨率/时长/是否含视频输入，
+// 成形载荷与计费事实共用同一份结果，避免发给上游的档位与计费读取的档位漂移。
+func deriveSeedanceRequestSettings(req *relaycommon.TaskSubmitReq) (seedanceRequestSettings, error) {
+	var meta struct {
+		Resolution string        `json:"resolution,omitempty"`
+		Duration   *dto.IntValue `json:"duration,omitempty"`
+	}
+	if err := taskcommon.UnmarshalMetadata(req.Metadata, &meta); err != nil {
+		return seedanceRequestSettings{}, errors.Wrap(err, "unmarshal metadata failed")
+	}
+
+	resolution := meta.Resolution
+	if resolution == "" {
+		resolution = req.Resolution
+	}
+	if resolution == "" {
+		resolution = helper.VideoResolutionTier(req.Size)
+	}
+	if resolution == "" {
+		resolution = "720p"
+	} else {
+		resolution = normalizeSeedanceResolution(resolution)
+	}
+
+	duration := 5
+	if meta.Duration != nil && int(*meta.Duration) > 0 {
+		duration = int(*meta.Duration)
+	} else if req.Duration > 0 {
+		duration = req.Duration
+	} else if seconds, err := strconv.Atoi(strings.TrimSpace(req.Seconds)); err == nil && seconds > 0 {
+		duration = seconds
+	}
+	if duration > relaycommon.MaxTaskDurationSeconds {
+		return seedanceRequestSettings{}, fmt.Errorf("duration %d exceeds max %d", duration, relaycommon.MaxTaskDurationSeconds)
+	}
+
+	return seedanceRequestSettings{
+		Resolution: resolution,
+		Duration:   duration,
+		HasVideo:   hasVideoReference(req),
+	}, nil
+}
+
+// ExtractUsageFacts 是计费事实接口的兼容包装（tiered 闸门按
+// TaskUsageFactsProvider 判定，故两个接口都要实现）。
+func (a *TaskAdaptor) ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayInfo) map[string]any {
+	facts, err := a.ExtractUsageFactsValidated(c, info)
+	if err != nil {
+		return map[string]any{}
+	}
+	return facts
+}
+
+// ExtractUsageFactsValidated 为 tiered_expr 任务计费提供提交时事实：
+// tokens（按分辨率×时长估算，结算以上游实际 usage 覆盖）、resolution、
+// video_input、unit_price（USD/1M）。非 Seedance 标准版返回空事实。
+func (a *TaskAdaptor) ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error) {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil, err
+	}
+
+	modelName := req.Model
+	if info != nil && info.ChannelMeta != nil && info.UpstreamModelName != "" {
+		modelName = info.UpstreamModelName
+	}
+	if !isSeedance25Model(modelName) && !isSeedance20Model(modelName) {
+		return map[string]any{}, nil
+	}
+
+	settings, err := deriveSeedanceRequestSettings(&req)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSeedanceResolution(modelName, settings.Resolution); err != nil {
+		return nil, err
+	}
+	unitPrice, ok := seedanceUnitPriceUSD(modelName, settings.Resolution, settings.HasVideo)
+	if !ok {
+		return nil, fmt.Errorf("%s: no token price for resolution %q", modelName, settings.Resolution)
+	}
+	tokens, ok := estimateSeedanceTokens(modelName, settings.Resolution, settings.Duration)
+	if !ok {
+		return nil, fmt.Errorf("%s: no token rate for resolution %q", modelName, settings.Resolution)
+	}
+
+	videoInput := "none"
+	if settings.HasVideo {
+		videoInput = "video"
+	}
+	return map[string]any{
+		"tokens":      tokens,
+		"resolution":  settings.Resolution,
+		"video_input": videoInput,
+		"unit_price":  unitPrice,
+	}, nil
+}
+
+// ============================
 // Adaptor implementation
 // ============================
 
@@ -104,6 +231,13 @@ type TaskAdaptor struct {
 	apiKey      string
 	baseURL     string
 }
+
+// 编译期锁定计费事实接口：tiered_expr 闸门按 TaskUsageFactsProvider 判定，
+// 缺少任一接口会让 Seedance 表达式在提交时报“no usage expression or meter”。
+var (
+	_ channel.TaskUsageFactsProvider          = (*TaskAdaptor)(nil)
+	_ channel.TaskValidatedUsageFactsProvider = (*TaskAdaptor)(nil)
+)
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
@@ -152,8 +286,16 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	}
 	if resolution == "" {
 		resolution = helper.VideoResolutionTier(req.Size)
+	} else if tier := helper.VideoResolutionTier(resolution); tier != "" {
+		resolution = tier
 	}
-	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
+	// 站点模型名（如 doubao-seedance-2-5-h）与上游名可能不同；静态倍率表按
+	// 上游模型名维护，优先用映射后的名字查表。
+	modelName := info.OriginModelName
+	if info.ChannelMeta != nil && info.UpstreamModelName != "" {
+		modelName = info.UpstreamModelName
+	}
+	ratio, ok := GetVideoInputRatio(modelName, resolution, hasVideo)
 	if !ok || ratio == 1.0 {
 		return nil
 	}
@@ -330,22 +472,23 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	_, contentFromClient := metadata["content"]
 	contentFromClient = contentFromClient || len(req.Content) > 0
 
-	if r.Duration == nil {
-		if req.Duration > 0 {
-			r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
-		} else if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
-			r.Duration = lo.ToPtr(dto.IntValue(sec))
-		}
+	settings, err := deriveSeedanceRequestSettings(req)
+	if err != nil {
+		return nil, err
 	}
-
+	if r.Duration == nil {
+		r.Duration = lo.ToPtr(dto.IntValue(settings.Duration))
+	}
 	if r.Resolution == "" {
+		// 保留既有的“无法解析就不下发”契约：上游按自己的缺省档出片，
+		// 计费侧按 720p 估算、结算时按响应分辨率修正。
 		if req.Resolution != "" {
-			r.Resolution = req.Resolution
+			r.Resolution = normalizeSeedanceResolution(req.Resolution)
 		} else if tier := helper.VideoResolutionTier(req.Size); tier != "" {
-			// OpenAI 风格请求只传 size(如 1920x1080)时归一到档位,让上游与
-			// 计费(视频按秒表)按同一档位取值。
 			r.Resolution = tier
 		}
+	} else {
+		r.Resolution = normalizeSeedanceResolution(r.Resolution)
 	}
 
 	// ratio 与 Ark 规范一致默认 "adaptive"：上游在字段缺失时报
@@ -419,6 +562,36 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, res
 		// 解析 usage 信息用于按倍率计费
 		taskResult.CompletionTokens = resTask.Usage.CompletionTokens
 		taskResult.TotalTokens = resTask.Usage.TotalTokens
+		// 终态事实：用上游实际 tokens 覆盖提交时的估算值；分辨率/含视频输入
+		// 取自提交快照，若响应带回了分辨率则按其修正 unit_price。
+		tokens := resTask.Usage.CompletionTokens
+		if tokens == 0 {
+			tokens = resTask.Usage.TotalTokens
+		}
+		if tokens > 0 {
+			facts := map[string]any{"tokens": float64(tokens)}
+			if task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.TieredSnapshot != nil {
+				snapshotFacts := task.PrivateData.BillingContext.TieredSnapshot.UsageFacts
+				resolution, _ := snapshotFacts["resolution"].(string)
+				if resTask.Resolution != "" {
+					if tier := helper.VideoResolutionTier(resTask.Resolution); tier != "" {
+						resolution = tier
+					}
+				}
+				videoInput, _ := snapshotFacts["video_input"].(string)
+				modelName := task.Properties.UpstreamModelName
+				if modelName == "" {
+					modelName = task.Properties.OriginModelName
+				}
+				if resolution != "" {
+					if unitPrice, ok := seedanceUnitPriceUSD(modelName, resolution, videoInput == "video"); ok {
+						facts["unit_price"] = unitPrice
+						facts["resolution"] = resolution
+					}
+				}
+			}
+			taskResult.UsageFacts = facts
+		}
 	case "failed":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
