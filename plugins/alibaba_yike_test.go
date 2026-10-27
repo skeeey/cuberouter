@@ -437,6 +437,54 @@ func TestAlibabaYikeDoesNotHardcodeStationModels(t *testing.T) {
 	assert.NotContains(t, plugin.Meta.Models, "wan3.0-video-prime")
 }
 
+func TestAlibabaYikeGenerateAudio(t *testing.T) {
+	plugin := loadAlibabaPlugin(t)
+	ctx := func(metadata map[string]any) map[string]any {
+		return map[string]any{
+			"baseUrl":       yikeBaseURL,
+			"apiKey":        "test-key",
+			"upstreamModel": "wan3.0-video",
+			"requestBody": map[string]any{
+				"model":    "seedance-2.0-a",
+				"prompt":   "a cat",
+				"metadata": metadata,
+			},
+		}
+	}
+	jobParameters := func(t *testing.T, descriptor map[string]any) map[string]any {
+		t.Helper()
+		parsed, err := url.Parse(descriptor["url"].(string))
+		require.NoError(t, err)
+		raw := parsed.Query().Get("JobParameters")
+		require.NotEmpty(t, raw)
+		var decoded map[string]any
+		require.NoError(t, common.Unmarshal([]byte(raw), &decoded))
+		return decoded
+	}
+
+	t.Run("false disables audio", func(t *testing.T) {
+		descriptor := callAlibabaHook(t, plugin, "buildSubmitRequest", ctx(map[string]any{"generate_audio": false}))
+		assert.Equal(t, false, jobParameters(t, descriptor)["EnableAudio"])
+	})
+
+	t.Run("true keeps audio", func(t *testing.T) {
+		descriptor := callAlibabaHook(t, plugin, "buildSubmitRequest", ctx(map[string]any{"generate_audio": true}))
+		assert.Equal(t, true, jobParameters(t, descriptor)["EnableAudio"])
+	})
+
+	t.Run("absent lets upstream default decide", func(t *testing.T) {
+		descriptor := callAlibabaHook(t, plugin, "buildSubmitRequest", ctx(map[string]any{}))
+		parsed, err := url.Parse(descriptor["url"].(string))
+		require.NoError(t, err)
+		assert.Empty(t, parsed.Query().Get("JobParameters"))
+	})
+
+	t.Run("rejects non-boolean", func(t *testing.T) {
+		_, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx(map[string]any{"generate_audio": "false"}))
+		require.ErrorContains(t, err, "metadata.generate_audio")
+	})
+}
+
 func TestAlibabaYikeRejectsMultipleOutputs(t *testing.T) {
 	plugin := loadAlibabaPlugin(t)
 

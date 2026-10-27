@@ -7,7 +7,7 @@ export const meta = {
     en: "Alibaba Cloud Bailian Wanxiang and Yike/WonderClip video generation (text-to-video, image-to-video, first/last frame, reference-to-video)",
     zh: "阿里云百炼万相 / 万镜一刻视频生成（文生视频、图生视频、首尾帧、参考生视频）",
   },
-  version: "1.1.0",
+  version: "1.2.0",
   author: { name: "QuantumNous" },
   channelTypes: [17],
   models: [
@@ -278,6 +278,13 @@ function buildYikeSubmitRequest(ctx) {
   const jobType = yikeJobType(req, metadata, medias);
   const size = yikeOutputSize(req, metadata);
   const duration = yikeDuration(req);
+  const jobParameters = {};
+  if (metadata.generate_audio !== undefined && metadata.generate_audio !== null) {
+    if (typeof metadata.generate_audio !== "boolean") {
+      throw new Error("metadata.generate_audio must be a boolean");
+    }
+    jobParameters.EnableAudio = metadata.generate_audio;
+  }
   const input = { Prompt: prompt };
   if (medias.length) input.Medias = medias;
   const query = {
@@ -294,6 +301,7 @@ function buildYikeSubmitRequest(ctx) {
     Duration: duration,
     N: 1,
   };
+  if (Object.keys(jobParameters).length) query.JobParameters = JSON.stringify(jobParameters);
   if (ctx.publicTaskId) query.ClientToken = String(ctx.publicTaskId);
   return {
     url: yikeRootURL(ctx.baseUrl) + "/?" + yikeQueryString(query),
