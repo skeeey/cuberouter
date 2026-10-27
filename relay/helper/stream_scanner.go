@@ -295,6 +295,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	})
 
 	// 主循环等待完成或超时
+	clientGone := false
 	select {
 	case <-ticker.C:
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
@@ -308,13 +309,18 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// “上游有 usage 就计费”处理流式，需要改成 drain：停止写客户端、继续读上游到
 		// [DONE]/EOF，拿 final usage 后再 settle。目前没有真实 case，先保持现状并打日志。
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		clientGone = true
+	}
+
+	cleanup()
+	if clientGone {
+		// ReceivedResponseCount 由 data handler goroutine 写，必须在 cleanup()
+		// 的 wg.Wait() 之后读，否则会触发 data race。
 		logger.LogWarn(c, fmt.Sprintf(
 			"stream client disconnected; closing upstream before final usage (request_id=%s model=%s received=%d)",
 			info.RequestId, info.OriginModelName, info.ReceivedResponseCount,
 		))
 	}
-
-	cleanup()
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {
