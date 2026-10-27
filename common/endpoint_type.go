@@ -73,6 +73,18 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		} else {
 			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
 		}
+	case constant.ChannelTypeVolcEngine:
+		// VolcEngine（45）同时承载 Ark 文本模型与 Doubao Seedance 视频任务：
+		// 视频由 doubao 任务适配器承载，客户端入口是通用任务端点
+		// /v1/video/generations，端点类型标注为 video-generation；其余模型
+		// 保持默认端点（response-only 仍标 openai-response）。
+		if IsOpenAIVideoModel(modelName) {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeVideoGeneration}
+		} else if IsOpenAIResponseOnlyModel(modelName) {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIResponse}
+		} else {
+			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
+		}
 	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 		endpointTypes = []constant.EndpointType{
 			constant.EndpointTypeOpenAI,

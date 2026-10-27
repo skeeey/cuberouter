@@ -159,3 +159,20 @@ func TestAliChannelVideoTaskEndpointTypes(t *testing.T) {
 	endpointTypes = GetEndpointTypesByChannelType(constant.ChannelTypeAli, "o3-pro")
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}, endpointTypes)
 }
+
+// TestVolcEngineChannelVideoTaskEndpointTypes 锁定 VolcEngine（45）渠道的视频任务
+// 模型端点：Doubao Seedance 视频由 doubao 任务适配器承载，客户端入口是通用任务
+// 端点 /v1/video/generations，端点类型必须是 video-generation；文本模型保持默认
+// OpenAI 端点（response-only 仍标 openai-response）。
+func TestVolcEngineChannelVideoTaskEndpointTypes(t *testing.T) {
+	for _, model := range []string{"doubao-seedance-2-5-h", "doubao-seedance-2-0-h", "doubao-seedance-2-5-260628"} {
+		endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeVolcEngine, model)
+		assert.Equal(t, []constant.EndpointType{constant.EndpointTypeVideoGeneration}, endpointTypes, model)
+	}
+
+	endpointTypes := GetEndpointTypesByChannelType(constant.ChannelTypeVolcEngine, "deepseek-v4-1-flash-261017-h")
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, endpointTypes)
+
+	endpointTypes = GetEndpointTypesByChannelType(constant.ChannelTypeVolcEngine, "o3-pro")
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}, endpointTypes)
+}
