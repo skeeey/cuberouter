@@ -81,18 +81,22 @@ export const ORGANIZATION_LOG_BILLING_MODE_LABELS: Record<
 /**
  * How the request was billed.
  *
- * Only tiered billing writes its mode into the log; the other two are inferred
- * from the pricing fields the relay always records. A per-request price wins
- * over a ratio because the former is the mode the charge actually used.
+ * Tiered and per-request billing can write their mode into the log. Historical
+ * rows imported from the legacy gateway record `'token'` without a model ratio,
+ * so that mode marks ratio billing on its own. Otherwise the mode is inferred
+ * from the pricing fields; a positive per-request price wins over a ratio
+ * because that is the charge the request actually used.
  */
 export function organizationLogBillingMode(
   other: LogOtherData | null
 ): OrganizationLogBillingMode | undefined {
   if (!other) return undefined
   if (other.billing_mode === 'tiered_expr') return 'tiered_expr'
+  if (other.billing_mode === 'per_request') return 'per_request'
   if (typeof other.model_price === 'number' && other.model_price > 0) {
     return 'per_request'
   }
+  if (other.billing_mode === 'token') return 'ratio'
   if (typeof other.model_ratio === 'number') return 'ratio'
   return undefined
 }

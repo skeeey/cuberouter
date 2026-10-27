@@ -88,6 +88,22 @@ describe('organizationLogBillingMode', () => {
     )
   })
 
+  test('an explicit per-request mode needs no price field', () => {
+    expect(organizationLogBillingMode({ billing_mode: 'per_request' })).toBe(
+      'per_request'
+    )
+  })
+
+  test('an explicit token mode marks imported ratio billing', () => {
+    expect(organizationLogBillingMode({ billing_mode: 'token' })).toBe('ratio')
+  })
+
+  test('a per-request price still wins over a token mode', () => {
+    expect(
+      organizationLogBillingMode({ billing_mode: 'token', model_price: 0.02 })
+    ).toBe('per_request')
+  })
+
   test('a ratio-only record is ratio billing', () => {
     expect(organizationLogBillingMode({ model_ratio: 1.2 })).toBe('ratio')
   })
