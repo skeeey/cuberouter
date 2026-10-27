@@ -63,6 +63,9 @@ type Policy struct {
 	// 仍留在根路径时使用; 只影响原生 messages, 降级后的 chat 与其余协议不受影响。
 	// 留空即按客户端原路径直发 base URL。
 	MessagesPathPrefix string
+	// AudioSpeechPath 是 /v1/audio/speech 会话在上游的原生路径(如 MiniMax 的
+	// /v1/t2a_v2)。留空表示该渠道不支持语音合成。
+	AudioSpeechPath string
 }
 
 // useNativeProtocol 报告本次请求能否直连上游的该协议。

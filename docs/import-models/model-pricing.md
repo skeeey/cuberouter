@@ -52,6 +52,23 @@ cuberouter 一个模型同一时刻只走一种计费模式,判定顺序固定(`
 
 模型配了 `ModelPrice`(USD/次)就整个请求一口价,忽略 token。适合 MJ、部分 task、suno 等。预扣与结算同一价 × QuotaPerUnit × GroupRatio。
 
+## 2.1 语音合成(TTS,按字符)
+
+MiniMax t2a_v2 这类按字符计费的上游,`astraflow` 适配器把 `usage_characters`
+写进 `prompt_tokens`(1 字符 = 1 prompt token),直接用 tiered_expr 的 `p` 定价即可。
+不要用 `ao`:音频输出 token 在预扣时不可预估,表达式会把预扣算成 0。
+
+| 上游报价 | 系数($/1M 字符) | billing_expr |
+|---|---|---|
+| 0.00035 元/字符(speech-2.8-hd) | 0.00035×1e6÷7.3 = 47.9452 | `tier("默认", p * 47.9452)` |
+| 0.0002 元/字符(speech-2.8-turbo) | 27.3973 | `tier("默认", p * 27.3973)` |
+
+- 入口是 OpenAI 兼容的 `/v1/audio/speech`;`voice` 填上游 voice_id(如
+  `male-qn-qingse`),情绪/语速等厂商参数走 `metadata`(合并进 t2a_v2 报文)。
+- 上游按字符数的定义计费:中文汉字计 2(「你好」= 4),ASCII 与中文标点计 1。
+  结算以 `usage_characters` 为准;预扣按输入 rune 数估算,汉字场景会略低于实际,
+  结算时补差。
+
 ## 3. 表达式 tiered_expr(分时/阶梯/缓存写入 1h)
 
 详细语法见本文下半部分与 `pkg/billingexpr/expr.md`。核心:

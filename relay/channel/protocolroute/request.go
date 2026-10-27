@@ -102,6 +102,14 @@ func (p Policy) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			return "", fmt.Errorf("%s: %w", p.ChannelLabel, err)
 		}
 	}
+	// 语音合成走厂商原生端点（MiniMax t2a_v2），不能沿用客户端的
+	// /v1/audio/speech 路径；安全校验与其它中继共用上面同一段。
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		if p.AudioSpeechPath == "" {
+			return "", fmt.Errorf("%s: audio speech path is not configured", p.ChannelLabel)
+		}
+		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, p.AudioSpeechPath, info.ChannelType), nil
+	}
 	requestPath := info.RequestURLPath
 	if requestPath == "" {
 		return info.ChannelBaseUrl, nil

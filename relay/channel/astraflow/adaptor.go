@@ -1,11 +1,15 @@
 package astraflow
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/protocolroute"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -23,6 +27,8 @@ var policy = protocolroute.Policy{
 	ChannelLabel:         "astraflow adaptor",
 	LogLabel:             "astraflow",
 	NativeWhenUndeclared: []string{dto.ModelProtocolResponses},
+	// 语音合成走 MiniMax 原生 t2a_v2 端点（见 relay/channel/minimax 的请求成形）。
+	AudioSpeechPath: "/v1/t2a_v2",
 	// DowngradeUndeclared 保持默认的 false: 这里的基线是历史承诺——未声明的模型
 	// 一律按 responses 直连,上游拒绝也不改变路由。CubeStack 的基线则吃降级记忆。
 }
@@ -57,7 +63,27 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	return nil, errors.New("not implemented")
+	if info.RelayMode != constant.RelayModeAudioSpeech {
+		return nil, fmt.Errorf("astraflow: unsupported audio relay mode %d", info.RelayMode)
+	}
+	upstreamModel := info.UpstreamModelName
+	if upstreamModel == "" {
+		upstreamModel = request.Model
+	}
+	minimaxRequest, err := minimax.BuildTTSRequest(request, upstreamModel, info.IsStream)
+	if err != nil {
+		return nil, err
+	}
+	jsonData, err := common.Marshal(minimaxRequest)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling minimax request: %w", err)
+	}
+	format := "mp3"
+	if minimaxRequest.AudioSetting != nil && minimaxRequest.AudioSetting.Format != "" {
+		format = minimaxRequest.AudioSetting.Format
+	}
+	c.Set(contextKeyTTSFormat, format)
+	return bytes.NewReader(jsonData), nil
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
@@ -90,6 +116,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		return handleAudioSpeechResponse(c, resp, info)
+	}
 	return policy.DoResponse(c, resp, info)
 }
 
