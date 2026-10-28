@@ -1,0 +1,238 @@
+{
+  "cases": [
+    {
+      "name": "t2v: defaults to 720P / 5s and omits ratio",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": { "model": "wan3.0-video-a", "prompt": "一只猫在草地上奔跑" }
+        }
+      ],
+      "expected": {
+        "url": "https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test",
+          "X-DashScope-Async": "enable"
+        },
+        "body": {
+          "model": "wan3.0-video",
+          "input": { "prompt": "一只猫在草地上奔跑" },
+          "parameters": { "resolution": "720P", "duration": 5 }
+        },
+        "action": "text_to_video"
+      }
+    },
+    {
+      "name": "t2v: explicit 480p / 5s",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": {
+            "model": "wan3.0-video-a",
+            "prompt": "一只橘猫蹲在草地上摇尾巴",
+            "resolution": "480p",
+            "duration": 5
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test",
+          "X-DashScope-Async": "enable"
+        },
+        "body": {
+          "model": "wan3.0-video",
+          "input": { "prompt": "一只橘猫蹲在草地上摇尾巴" },
+          "parameters": { "resolution": "480P", "duration": 5 }
+        },
+        "action": "text_to_video"
+      }
+    },
+    {
+      "name": "i2v: one image becomes first_frame with adaptive ratio",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": {
+            "model": "wan3.0-video-a",
+            "prompt": "让画面里的狗轻轻摇尾巴",
+            "images": ["https://example.com/dog.jpeg"],
+            "resolution": "480p",
+            "duration": 2
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test",
+          "X-DashScope-Async": "enable"
+        },
+        "body": {
+          "model": "wan3.0-video",
+          "input": {
+            "prompt": "让画面里的狗轻轻摇尾巴",
+            "media": [{ "type": "first_frame", "url": "https://example.com/dog.jpeg" }]
+          },
+          "parameters": { "resolution": "480P", "duration": 2, "ratio": "adaptive" }
+        },
+        "action": "image_to_video"
+      }
+    },
+    {
+      "name": "reference: three unlabeled images become reference_image entries",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": {
+            "model": "wan3.0-video-a",
+            "prompt": "把这三种材质融合成一个场景",
+            "images": ["https://example.com/a.png", "https://example.com/b.png", "https://example.com/c.png"],
+            "resolution": "720p",
+            "duration": 5
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test",
+          "X-DashScope-Async": "enable"
+        },
+        "body": {
+          "model": "wan3.0-video",
+          "input": {
+            "prompt": "把这三种材质融合成一个场景",
+            "media": [
+              { "type": "reference_image", "url": "https://example.com/a.png" },
+              { "type": "reference_image", "url": "https://example.com/b.png" },
+              { "type": "reference_image", "url": "https://example.com/c.png" }
+            ]
+          },
+          "parameters": { "resolution": "720P", "duration": 5 }
+        },
+        "action": "reference_to_video"
+      }
+    },
+    {
+      "name": "metadata.media passes reference video and audio through",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": {
+            "model": "wan3.0-video-a",
+            "prompt": "把视频里的天空换成晚霞",
+            "resolution": "1080p",
+            "duration": 5,
+            "metadata": {
+              "media": [
+                { "type": "reference_video", "url": "https://example.com/in.mp4" },
+                { "type": "reference_audio", "url": "https://example.com/bgm.mp3" }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer sk-test",
+          "X-DashScope-Async": "enable"
+        },
+        "body": {
+          "model": "wan3.0-video",
+          "input": {
+            "prompt": "把视频里的天空换成晚霞",
+            "media": [
+              { "type": "reference_video", "url": "https://example.com/in.mp4" },
+              { "type": "reference_audio", "url": "https://example.com/bgm.mp3" }
+            ]
+          },
+          "parameters": { "resolution": "1080P", "duration": 5 }
+        },
+        "action": "reference_to_video"
+      }
+    },
+    {
+      "name": "duration below the upstream minimum is rejected before submit",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "requestBody": { "model": "wan3.0-video-a", "prompt": "x", "duration": 1 }
+        }
+      ],
+      "expectedError": "duration must be an integer between 2 and 30 seconds"
+    },
+    {
+      "name": "usage facts mirror the billed duration and tier",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com",
+          "apiKey": "sk-test",
+          "upstreamModel": "wan3.0-video",
+          "usagePurpose": "facts",
+          "requestBody": {
+            "model": "wan3.0-video-a",
+            "prompt": "x",
+            "resolution": "480p",
+            "duration": 5
+          }
+        }
+      ],
+      "expected": { "seconds": 5, "resolution_tier": "480P" }
+    },
+    {
+      "name": "task result maps SUCCEEDED to a success URL",
+      "hook": "parseTaskResult",
+      "args": [
+        { "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com", "apiKey": "sk-test", "taskId": "t-1" },
+        { "output": { "task_status": "SUCCEEDED", "video_url": "https://example.com/out.mp4" } }
+      ],
+      "expected": { "status": "SUCCESS", "url": "https://example.com/out.mp4" }
+    },
+    {
+      "name": "task result maps FAILED to a failure reason",
+      "hook": "parseTaskResult",
+      "args": [
+        { "baseUrl": "https://ws-test.cn-beijing.maas.aliyuncs.com", "apiKey": "sk-test", "taskId": "t-1" },
+        { "output": { "task_status": "FAILED", "code": "InvalidParameter", "message": "bad prompt" } }
+      ],
+      "expected": { "status": "FAILURE", "reason": "InvalidParameter: bad prompt" }
+    }
+  ]
+}
