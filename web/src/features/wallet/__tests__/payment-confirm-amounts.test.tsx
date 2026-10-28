@@ -27,6 +27,7 @@ import {
 } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { getOrganizations } from '@/features/organization/api'
 import { getSelf, getStatus } from '@/lib/api'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -44,6 +45,15 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     getStatus: vi.fn(),
     getSelf: vi.fn(),
+  }
+})
+
+vi.mock('@/features/organization/api', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/organization/api')>()
+  return {
+    ...actual,
+    getOrganizations: vi.fn(),
   }
 })
 
@@ -120,6 +130,7 @@ beforeEach(() => {
   vi.mocked(getSelf).mockResolvedValue({ success: true, data: user })
   vi.mocked(getTopupInfo).mockResolvedValue({ success: true, data: topupInfo })
   vi.mocked(getAffiliateCode).mockResolvedValue({ success: true, data: 'AFF1' })
+  vi.mocked(getOrganizations).mockResolvedValue({ success: true, data: [] })
 })
 
 describe('wallet confirm dialog amounts', () => {

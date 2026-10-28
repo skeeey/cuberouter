@@ -244,6 +244,23 @@ export interface UserWalletData {
 }
 
 /**
+ * One organization whose balance the wallet shows.
+ *
+ * Narrower than the organization feature's `UserOrganization` on purpose: the
+ * wallet only needs the pool figures, not roles or capabilities.
+ */
+export interface WalletOrganization {
+  /** Organization ID */
+  id: number
+  /** Organization name */
+  name: string
+  /** Total quota granted to the whole organization */
+  quota: number
+  /** Quota consumed by the whole organization */
+  used_quota: number
+}
+
+/**
  * Topup record status
  */
 export type TopupStatus = 'success' | 'pending' | 'expired'
