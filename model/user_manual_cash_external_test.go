@@ -78,6 +78,7 @@ func testManualCashTopUpFlow(t *testing.T, db *gorm.DB) {
 	require.NoError(t, IncreaseUserQuota(user.Id, 500000, true))
 	require.NoError(t, db.Create(&TopUp{
 		UserId: user.Id, Amount: 1, TradeNo: "manual-cash-flow-" + suffix,
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusSuccess,
 	}).Error)
 	require.NoError(t, db.First(&updated, user.Id).Error)

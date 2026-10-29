@@ -38,6 +38,9 @@ const (
 	PaymentMethodWaffoPancake = "waffo_pancake"
 	PaymentMethodAlipay       = "alipay_official"
 	PaymentMethodBalance      = "balance"
+	// PaymentMethodAdminRecharge 是旧系统写入的管理员手动充值标记。
+	// 它只用于充值记录展示，不计入管理端「现金」口径。
+	PaymentMethodAdminRecharge = "admin_recharge"
 )
 
 const (
@@ -315,6 +318,37 @@ func topupAmountToQuotaDecimal(amount int64, rate float64) decimal.Decimal {
 		return rmbTopupAmountToUSD(amount, rate).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 	}
 	return decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+}
+
+// topUpCreditedQuota 返回一笔成功充值订单实际入账的额度。不同渠道的 Amount 语义
+// 不同：Creem 存 quota，Waffo 存美元数量，Stripe 以 Money（换算后的美元）为准；
+// 旧系统迁移的易支付/支付宝订单还会把 quota 直接写进 Amount，而新订单存展示单位。
+// 对后者用实付 Money 折算出的额度做量级判断：Amount 明显更接近 quota 时直接采用。
+func topUpCreditedQuota(topUp *TopUp) int {
+	if topUp == nil {
+		return 0
+	}
+	switch topUp.PaymentProvider {
+	case PaymentProviderStripe:
+		return common.QuotaFromDecimal(
+			decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+	case PaymentProviderCreem:
+		return common.QuotaFromDecimal(decimal.NewFromInt(topUp.Amount))
+	case PaymentProviderWaffo, PaymentProviderWaffoPancake:
+		return common.QuotaFromDecimal(
+			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+	}
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY && topUp.Money > 0 {
+		if rate := topUpRate(topUp); rate > 0 {
+			expected := topUp.Money / rate * common.QuotaPerUnit
+			if math.Abs(float64(topUp.Amount)-expected) < math.Abs(float64(topUp.Amount)-topUp.Money) {
+				return common.QuotaFromDecimal(decimal.NewFromInt(topUp.Amount))
+			}
+		}
+	}
+	return common.QuotaFromDecimal(topupAmountToQuotaDecimal(topUp.Amount, topUpRate(topUp)))
 }
 
 // rmbTopupAmountToUSD 把人民币充值金额(元)按汇率折算为美元金额。

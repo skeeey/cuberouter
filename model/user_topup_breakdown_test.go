@@ -82,15 +82,24 @@ func TestFillUserTopUpBreakdown(t *testing.T) {
 
 	require.NoError(t, db.Create(&TopUp{
 		UserId: user.Id, Amount: 1, TradeNo: "breakdown-success",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusSuccess,
 	}).Error)
 	require.NoError(t, db.Create(&TopUp{
 		UserId: user.Id, Amount: 99, TradeNo: "breakdown-pending",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusPending,
 	}).Error)
 	require.NoError(t, db.Create(&TopUp{
 		UserId: other.Id, Amount: 5, TradeNo: "breakdown-other-success",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusSuccess,
+	}).Error)
+	// 旧系统管理员手动充值：保留在充值记录里，但不计入现金。
+	require.NoError(t, db.Create(&TopUp{
+		UserId: user.Id, Amount: 99999999, Money: 1460,
+		TradeNo: "admin_balance:1:breakdown", PaymentMethod: PaymentMethodAdminRecharge,
+		PaymentProvider: PaymentProviderEpay, Status: common.TopUpStatusSuccess,
 	}).Error)
 
 	FillUserTopUpBreakdown(&user)
@@ -106,6 +115,7 @@ func TestFillUserTopUpBreakdown(t *testing.T) {
 	require.NoError(t, db.Create(&clamped).Error)
 	require.NoError(t, db.Create(&TopUp{
 		UserId: clamped.Id, Amount: 1, TradeNo: "breakdown-clamped-success",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusSuccess,
 	}).Error)
 	FillUserTopUpBreakdown(&clamped)
@@ -122,12 +132,28 @@ func TestFillUserTopUpBreakdown(t *testing.T) {
 	require.NoError(t, db.Create(&cnyUser).Error)
 	require.NoError(t, db.Create(&TopUp{
 		UserId: cnyUser.Id, Amount: 10, Rate: 7.3, TradeNo: "breakdown-cny-success",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
 		Status: common.TopUpStatusSuccess,
 	}).Error)
 	FillUserTopUpBreakdown(&cnyUser)
 	// 10 元 ÷ 7.3 × 500,000 ≈ 684,931.5068 → 684,932
 	require.NotNil(t, cnyUser.CashTopUpTotal)
 	assert.Equal(t, 684932, *cnyUser.CashTopUpTotal)
+
+	// 旧系统迁移订单：Amount 存的是 quota（10 元 → 684,932），不是元。
+	legacyCny := User{
+		Username: "breakdown-legacy-cny", Password: "password", Group: "default",
+		AffCode: "breakdown-legacy-cny-aff", Quota: 700000,
+	}
+	require.NoError(t, db.Create(&legacyCny).Error)
+	require.NoError(t, db.Create(&TopUp{
+		UserId: legacyCny.Id, Amount: 684932, Money: 10, TradeNo: "breakdown-legacy-cny",
+		PaymentMethod: "payment", PaymentProvider: PaymentProviderEpay,
+		Status: common.TopUpStatusSuccess,
+	}).Error)
+	FillUserTopUpBreakdown(&legacyCny)
+	require.NotNil(t, legacyCny.CashTopUpTotal)
+	assert.Equal(t, 684932, *legacyCny.CashTopUpTotal)
 
 	manualCash := User{
 		Username: "breakdown-manual-cash", Password: "password", Group: "default",

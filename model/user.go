@@ -1975,7 +1975,7 @@ func FillUserTopUpBreakdown(user *User) {
 		return
 	}
 	var topUps []TopUp
-	if err := DB.Select("amount", "rate").
+	if err := DB.Select("amount", "rate", "money", "payment_method", "payment_provider").
 		Where("user_id = ? AND status = ?", user.Id, common.TopUpStatusSuccess).
 		Find(&topUps).Error; err != nil {
 		common.SysLog("failed to load user top-ups for breakdown: " + err.Error())
@@ -1983,7 +1983,11 @@ func FillUserTopUpBreakdown(user *User) {
 	}
 	cash := int64(0)
 	for i := range topUps {
-		cash += int64(common.QuotaFromDecimal(topupAmountToQuotaDecimal(topUps[i].Amount, topUpRate(&topUps[i]))))
+		if topUps[i].PaymentMethod == PaymentMethodAdminRecharge ||
+			topUps[i].PaymentMethod == PaymentMethodBalance {
+			continue
+		}
+		cash += int64(topUpCreditedQuota(&topUps[i]))
 	}
 	cash += user.ManualCashTopUpTotal
 	gift := int64(user.Quota) + int64(user.UsedQuota) - cash

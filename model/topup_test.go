@@ -49,3 +49,37 @@ func TestTopUpRateSnapshotFallback(t *testing.T) {
 	// 有快照 → 用快照
 	require.Equal(t, 7.5, topUpRate(&TopUp{Rate: 7.5}))
 }
+
+func TestTopUpCreditedQuotaByProvider(t *testing.T) {
+	origType := operation_setting.GetQuotaDisplayType()
+	origPrice := operation_setting.Price
+	origQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		operation_setting.SetQuotaDisplayTypeForTest(origType)
+		operation_setting.Price = origPrice
+		common.QuotaPerUnit = origQuotaPerUnit
+	})
+	operation_setting.Price = 7.3
+	common.QuotaPerUnit = 500000
+
+	cases := []struct {
+		name        string
+		displayType string
+		topUp       TopUp
+		want        int
+	}{
+		{"epay cny new order", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: "payment", Amount: 10, Money: 10, Rate: 7.3}, 684932},
+		{"epay cny migrated quota amount", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: "payment", Amount: 684932, Money: 10}, 684932},
+		{"alipay cny", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderAlipay, PaymentMethod: PaymentMethodAlipay, Amount: 1, Money: 1}, 68493},
+		{"stripe uses money", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderStripe, Money: 2}, 1000000},
+		{"creem amount is quota", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderCreem, Amount: 12345}, 12345},
+		{"waffo amount is usd", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderWaffo, Amount: 2}, 1000000},
+		{"waffo pancake amount is usd", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderWaffoPancake, Amount: 2}, 1000000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.SetQuotaDisplayTypeForTest(tc.displayType)
+			require.Equal(t, tc.want, topUpCreditedQuota(&tc.topUp))
+		})
+	}
+}
