@@ -212,7 +212,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       toolbar={
         isCommon ? (
-          <CommonLogsFilterBar table={table} />
+          <CommonLogsFilterBar table={table} total={data?.total || 0} />
         ) : (
           <TaskLogsFilterBar table={table} logCategory={logCategory} />
         )

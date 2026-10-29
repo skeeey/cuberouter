@@ -42,6 +42,7 @@ import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
+import { CommonLogsExportButton } from './common-logs-export-button'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
@@ -107,6 +108,8 @@ function buildSearchSourceKey(values: {
 
 interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
+  /** The filtered set's total, used to disable an empty export. */
+  total: number
 }
 
 export function CommonLogsFilterBar<TData>(
@@ -291,6 +294,18 @@ export function CommonLogsFilterBar<TData>(
     </Tooltip>
   )
 
+  const actionStart = (
+    <div className='flex items-center gap-2'>
+      <CommonLogsExportButton
+        isAdmin={isAdmin}
+        total={props.total}
+        searchParams={searchParams}
+        columnFilters={props.table.getState().columnFilters}
+      />
+      {sensitiveToggle}
+    </div>
+  )
+
   const dateRangeFilter = (
     <LogsFilterField wide>
       <CompactDateTimeRangePicker
@@ -415,7 +430,7 @@ export function CommonLogsFilterBar<TData>(
     <LogsFilterToolbar
       table={props.table}
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={actionStart}
       primaryFilters={
         <>
           {dateRangeFilter}
