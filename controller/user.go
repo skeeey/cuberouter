@@ -1466,6 +1466,10 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
+			// 兼容旧调用方：没有 account_type 时按历史口径视为赠送。
+			if req.AccountType == "" {
+				req.AccountType = "gift"
+			}
 			if req.AccountType != "gift" && req.AccountType != "cash" {
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
