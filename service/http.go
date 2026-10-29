@@ -23,6 +23,37 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	}
 }
 
+// upstreamRequestIdHeaders lists upstream response headers that carry a
+// per-request ID, in priority order. Only headers verified against the live
+// upstreams behind cuberouter channels belong here.
+//
+// TODO(upstream-request-id): providers not covered yet — IDs that only appear
+// in the response body (Zhipu bigmodel `request_id`, Baidu AIGC eos-sg
+// `requestId`), and upstreams not yet probed (Vidu, fncompute, BoosterAI,
+// MOSS audio, DaoCloud, internal MOSS/Qwen-Image workers, AWS LiteLLM).
+var upstreamRequestIdHeaders = []string{
+	common.RequestIdKey, // new-api / cuberouter gateways, e.g. computrix
+	"X-Request-Id",      // AstraFlow, Ali MaaS, Volcengine Ark, 牛耳
+	"Request-Id",        // JD Cloud
+	"X-Bce-Request-Id",  // Baidu Qianfan
+	"X-Ds-Trace-Id",     // DeepSeek
+	"X-Acs-Request-Id",  // Aliyun Yike RPC
+}
+
+// CaptureUpstreamRequestId records the highest-priority upstream request ID
+// header on the Gin context so the consume/task log can persist it.
+func CaptureUpstreamRequestId(c *gin.Context, header http.Header) {
+	if c == nil || header == nil {
+		return
+	}
+	for _, name := range upstreamRequestIdHeaders {
+		if id := header.Get(name); id != "" {
+			c.Set(common.UpstreamRequestIdKey, id)
+			return
+		}
+	}
+}
+
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
 // should be copied to the client response. It returns false for Content-Length
 // (managed separately) and X-Oneapi-Request-Id (to preserve the local instance

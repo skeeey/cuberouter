@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -204,4 +206,40 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
+}
+
+func TestDoRequestCapturesUpstreamRequestId(t *testing.T) {
+	service.InitHttpClient()
+
+	tests := []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{"oneapi gateway", "X-Oneapi-Request-Id", "oneapi-id"},
+		{"jd cloud", "Request-Id", "jd-id"},
+		{"baidu qianfan", "X-Bce-Request-Id", "bce-id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set(tt.header, tt.value)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/relay", nil)
+			req, err := http.NewRequest(http.MethodPost, upstream.URL, nil)
+			require.NoError(t, err)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+			resp, err := doRequest(ctx, req, info)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, tt.value, ctx.GetString(common.UpstreamRequestIdKey))
+		})
+	}
 }
