@@ -614,6 +614,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
   // Localized operation text rendered from the language-independent op
   // descriptor (shared by audit type=3 and login type=7).
   const operationText = renderAuditContent(other, t)
+  const manageRemark =
+    isManage &&
+    props.isAdmin &&
+    typeof other?.op?.params?.remark === 'string'
+      ? other.op.params.remark
+      : ''
   const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
   // Channel update records which fields changed (stable field tokens); render
   // them with their localized labels for admins.
@@ -1039,6 +1045,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
           >
             {operationText != null && (
               <DetailRow label={t('Operation')} value={operationText} />
+            )}
+            {manageRemark !== '' && (
+              <DetailRow label={t('Remark')} value={manageRemark} />
             )}
             {authMethodLabel !== '' && (
               <DetailRow

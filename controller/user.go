@@ -468,6 +468,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	model.FillUserTopUpBreakdown(user)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1349,10 +1350,12 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id          int    `json:"id"`
+	Action      string `json:"action"`
+	Value       int    `json:"value"`
+	Mode        string `json:"mode"`
+	AccountType string `json:"account_type"`
+	Remark      string `json:"remark"`
 }
 
 // ManageUser Only admin user can do this
@@ -1463,17 +1466,46 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
+			if req.AccountType != "gift" && req.AccountType != "cash" {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			remark := strings.TrimSpace(req.Remark)
+			if utf8.RuneCountInString(remark) > 255 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
 			if err := common.ValidateWalletQuota(req.Value); err != nil {
 				common.ApiError(c, err)
 				return
 			}
-			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if req.AccountType == "cash" {
+				err = model.IncreaseUserQuotaAndManualCash(user.Id, req.Value)
+			} else {
+				err = model.IncreaseUserQuota(user.Id, req.Value, true)
+			}
+			if err != nil {
 				common.ApiError(c, err)
 				return
 			}
-			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
-				"quota": logger.LogQuota(req.Value),
-			})
+			action, accountLabel := "user.quota_topup_gift", "赠送账户"
+			if req.AccountType == "cash" {
+				action, accountLabel = "user.quota_topup_cash", "现金账户"
+			}
+			auditParams := map[string]interface{}{
+				"quota":        logger.LogQuota(req.Value),
+				"account_type": req.AccountType,
+			}
+			if remark != "" {
+				auditParams["remark"] = remark
+			}
+			recordManageAuditFor(c, user.Id, action, auditParams)
+
+			content := fmt.Sprintf("管理员充值 %s（%s）", logger.LogQuota(req.Value), accountLabel)
+			if remark != "" {
+				content += "，备注：" + remark
+			}
+			model.RecordLog(user.Id, model.LogTypeTopup, content)
 		case "subtract":
 			if req.Value <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)

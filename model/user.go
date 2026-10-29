@@ -75,24 +75,27 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                    int                        `json:"id"`
-	Username              string                     `json:"username" gorm:"unique;index" validate:"max=50"`
-	Password              string                     `json:"password" gorm:"not null;" validate:"min=8,max=20,passwordStrength"`
-	OriginalPassword      string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName           string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role                  int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status                int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email                 string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId              string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId             string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId                string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId              string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId            string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode      string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
-	AccessToken           *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota                 int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota             int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount          int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Id               int     `json:"id"`
+	Username         string  `json:"username" gorm:"unique;index" validate:"max=50"`
+	Password         string  `json:"password" gorm:"not null;" validate:"min=8,max=20,passwordStrength"`
+	OriginalPassword string  `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName      string  `json:"display_name" gorm:"index" validate:"max=20"`
+	Role             int     `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status           int     `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email            string  `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId         string  `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId        string  `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId           string  `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId         string  `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId       string  `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode string  `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	AccessToken      *string `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota            int     `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota        int     `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	// ManualCashTopUpTotal 管理员按「现金账户」手动充值的累计额度（仅用于管理端
+	// 现金/赠金拆分展示；历史手动充值没有该标记，默认 0，按赠金口径处理）。
+	ManualCashTopUpTotal  int64                      `json:"-" gorm:"type:bigint;default:0;column:manual_cash_topup_total"`
+	RequestCount          int                        `json:"request_count" gorm:"type:int;default:0;"` // request number
 	TotalPromptTokens     int64                      `json:"total_prompt_tokens" gorm:"type:bigint;default:0;column:total_prompt_tokens"`
 	TotalCompletionTokens int64                      `json:"total_completion_tokens" gorm:"type:bigint;default:0;column:total_completion_tokens"`
 	TotalCacheTokens      int64                      `json:"total_cache_tokens" gorm:"type:bigint;default:0;column:total_cache_tokens"`
@@ -125,6 +128,11 @@ type User struct {
 	// 订阅剩余价值（USD）：逐有限订阅按 套餐现价 × 剩余/总量 折算后求和，
 	// 口径与数据看板「订阅余额」一致。
 	SubscriptionRemainValue float64 `json:"subscription_remain_value" gorm:"-"`
+
+	// 管理端展示口径（非持久化，由 FillUserTopUpBreakdown 在用户详情接口填充）：
+	// 累计在线充值额度 / 累计赠送额度。指针用于区分「未计算」（列表接口）与真实的 0。
+	CashTopUpTotal *int `json:"cash_topup_total,omitempty" gorm:"-"`
+	GiftTopUpTotal *int `json:"gift_topup_total,omitempty" gorm:"-"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -1492,6 +1500,42 @@ func increaseUserQuota(id int, quota int) (err error) {
 	return ErrWalletQuotaLimitExceeded
 }
 
+// IncreaseUserQuotaAndManualCash 管理员按「现金账户」充值：在同一 UPDATE 里
+// 增加余额与累计现金充值，保留钱包上限守卫，供管理端现金/赠金拆分展示使用。
+func IncreaseUserQuotaAndManualCash(id int, quota int) (err error) {
+	if quota <= 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return err
+	}
+	result := DB.Model(&User{}).
+		Where("id = ? AND quota <= ?", id, common.MaxWalletQuota-quota).
+		Updates(map[string]interface{}{
+			"quota":                   gorm.Expr("quota + ?", quota),
+			"manual_cash_topup_total": gorm.Expr("manual_cash_topup_total + ?", quota),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		var count int64
+		if err := DB.Model(&User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return ErrWalletQuotaLimitExceeded
+	}
+	goQuotaCacheUpdate(func() {
+		if err := cacheIncrUserQuota(id, int64(quota)); err != nil {
+			common.SysLog("failed to increase user quota: " + err.Error())
+		}
+	})
+	return nil
+}
+
 func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
@@ -1917,6 +1961,39 @@ func ExportUsersByFilter(keyword, group string, maxRows int) ([]*User, error) {
 // ============================================================
 // 用户有效订阅 token 额度统计（port from develop 51b3f79/#86, 2c55d2e, f951584）
 // ============================================================
+
+// FillUserTopUpBreakdown 填充管理端展示用的累计充值拆分（非持久化字段）：
+// 现金 = 该用户所有成功在线充值订单按订单快照汇率折算的额度；
+// 赠金 = 当前余额 + 历史已消费 - 现金（小于 0 按 0）。
+//
+// 消费同时减少余额、增加已消费，两者之和不变；任何非在线充值的入账都会推高
+// 两者之和，所以管理员手动充值、兑换码、签到等历史与新增数据都能用同一公式
+// 推算，无需额外记账。站点未启用订阅计费；若启用，订阅用量会计入 used_quota
+// 却不扣钱包余额，届时需要再减去订阅已用额度。
+func FillUserTopUpBreakdown(user *User) {
+	if user == nil {
+		return
+	}
+	var topUps []TopUp
+	if err := DB.Select("amount", "rate").
+		Where("user_id = ? AND status = ?", user.Id, common.TopUpStatusSuccess).
+		Find(&topUps).Error; err != nil {
+		common.SysLog("failed to load user top-ups for breakdown: " + err.Error())
+		return
+	}
+	cash := int64(0)
+	for i := range topUps {
+		cash += int64(common.QuotaFromDecimal(topupAmountToQuotaDecimal(topUps[i].Amount, topUpRate(&topUps[i]))))
+	}
+	cash += user.ManualCashTopUpTotal
+	gift := int64(user.Quota) + int64(user.UsedQuota) - cash
+	if gift < 0 {
+		gift = 0
+	}
+	cashValue, giftValue := int(cash), int(gift)
+	user.CashTopUpTotal = &cashValue
+	user.GiftTopUpTotal = &giftValue
+}
 
 // userSubQuotaStat 单用户单套餐有效订阅额度聚合结果
 type userSubQuotaStat struct {

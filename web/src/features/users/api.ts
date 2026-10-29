@@ -177,7 +177,8 @@ export async function manageUser(
 }
 
 /**
- * Adjust user quota atomically (add/subtract/override)
+ * Top up a user's quota — the amount is always added, with an optional
+ * account type (gift/cash) and remark recorded in the operation log.
  */
 export async function adjustUserQuota(
   payload: ManageUserQuotaPayload

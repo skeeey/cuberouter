@@ -71,6 +71,9 @@ export const userSchema = z.object({
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
+  // 管理端展示口径（非持久化，用户详情接口按成功充值订单与余额反推填充）。
+  cash_topup_total: z.number().optional(),
+  gift_topup_total: z.number().optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -154,13 +157,15 @@ export type ManageUserAction =
   | 'delete'
   | 'add_quota'
 
-export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
+export type QuotaAccountType = 'gift' | 'cash'
 
 export interface ManageUserQuotaPayload {
   id: number
   action: 'add_quota'
-  mode: QuotaAdjustMode
+  mode: 'add'
   value: number
+  account_type: QuotaAccountType
+  remark?: string
 }
 
 // ============================================================================

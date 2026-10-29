@@ -114,6 +114,7 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [userDetail, setUserDetail] = useState<User | null>(null)
   const [isSavingDiscounts, setIsSavingDiscounts] = useState(false)
   // Discounts edited in this drawer session. Null means the editor still shows
   // the server's copy of the user.
@@ -167,14 +168,19 @@ export function UsersMutateDrawer({
       // The drawer outlives a close (the page only swaps `currentRow`), so
       // discounts edited for the previous user must not survive into this one.
       setEditedDiscounts(null)
+      setUserDetail(null)
       // For update, fetch fresh data
-      getUser(currentRow.id).then((result) => {
-        if (result.success && result.data) {
-          form.reset(transformUserToFormDefaults(result.data))
-        }
-      })
+      getUser(currentRow.id)
+        .then((result) => {
+          if (result.success && result.data) {
+            setUserDetail(result.data)
+            form.reset(transformUserToFormDefaults(result.data))
+          }
+        })
+        .catch(() => undefined)
     } else if (open && !isUpdate) {
       // For create, reset to defaults
+      setUserDetail(null)
       form.reset(USER_FORM_DEFAULT_VALUES)
     }
   }, [open, isUpdate, currentRow, form])
@@ -239,7 +245,7 @@ export function UsersMutateDrawer({
               : t(ERROR_MESSAGES.CREATE_FAILED))
         )
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
@@ -250,6 +256,7 @@ export function UsersMutateDrawer({
     if (!currentRow) return
     const result = await getUser(currentRow.id)
     if (result.success && result.data) {
+      setUserDetail(result.data)
       form.reset(transformUserToFormDefaults(result.data))
     }
     triggerRefresh()
@@ -450,12 +457,10 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
                         <Select
-                          items={[
-                            ...groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            })),
-                          ]}
+                          items={groups.map((group) => ({
+                            value: group,
+                            label: group,
+                          }))}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -507,7 +512,7 @@ export function UsersMutateDrawer({
                             onClick={() => setQuotaDialogOpen(true)}
                           >
                             <Pencil className='mr-1 h-4 w-4' />
-                            {t('Adjust Quota')}
+                            {t('Top-up')}
                           </Button>
                         </div>
                         <FormDescription>
@@ -702,7 +707,7 @@ export function UsersMutateDrawer({
         <UserQuotaDialog
           open={quotaDialogOpen}
           onOpenChange={setQuotaDialogOpen}
-          userId={currentRow.id}
+          user={userDetail ?? currentRow}
           currentQuota={parseQuotaFromDollars(currentQuotaRaw || 0)}
           onSuccess={refreshUserData}
         />

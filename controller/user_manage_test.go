@@ -288,3 +288,67 @@ func TestManageUserDemoteOps(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), i18n.MsgUserNoPermissionHigherLevel)
 	})
 }
+
+func TestManageUserTopUpRecordsAccountTypeRemarkAndUserLog(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "managed-topup-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: "managed-topup-aff",
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":500000,"account_type":"gift","remark":"首充赠送"}`,
+		user.Id,
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+
+	var updated model.User
+	require.NoError(t, db.First(&updated, user.Id).Error)
+	assert.Equal(t, 500000, updated.Quota)
+	assert.Zero(t, updated.ManualCashTopUpTotal)
+
+	var manageLog model.Log
+	require.NoError(t, db.Where("type = ? AND user_id = ? AND other LIKE ?",
+		model.LogTypeManage, 9999, "%quota_topup_gift%").First(&manageLog).Error)
+	assert.Contains(t, manageLog.Other, `"action":"user.quota_topup_gift"`)
+	assert.Contains(t, manageLog.Other, `"account_type":"gift"`)
+	assert.Contains(t, manageLog.Other, `"remark":"首充赠送"`)
+
+	var userLog model.Log
+	require.NoError(t, db.Where("type = ? AND user_id = ? AND content LIKE ?",
+		model.LogTypeTopup, user.Id, "%首充赠送%").First(&userLog).Error)
+	assert.Contains(t, userLog.Content, "赠送账户")
+	assert.Contains(t, userLog.Content, "首充赠送")
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":1000,"account_type":"cash"}`,
+		user.Id,
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&updated, user.Id).Error)
+	assert.Equal(t, 501000, updated.Quota)
+	assert.EqualValues(t, 1000, updated.ManualCashTopUpTotal)
+	manageLog = model.Log{}
+	require.NoError(t, db.Where("type = ? AND user_id = ? AND other LIKE ?",
+		model.LogTypeManage, 9999, "%quota_topup_cash%").First(&manageLog).Error)
+	assert.Contains(t, manageLog.Other, `"action":"user.quota_topup_cash"`)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":1000,"account_type":"other"}`,
+		user.Id,
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.First(&updated, user.Id).Error)
+	assert.Equal(t, 501000, updated.Quota)
+	assert.EqualValues(t, 1000, updated.ManualCashTopUpTotal)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":1000,"account_type":"gift","remark":"%s"}`,
+		user.Id, strings.Repeat("a", 256),
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.First(&updated, user.Id).Error)
+	assert.Equal(t, 501000, updated.Quota)
+	assert.EqualValues(t, 1000, updated.ManualCashTopUpTotal)
+}

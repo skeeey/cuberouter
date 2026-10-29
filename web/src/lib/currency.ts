@@ -536,6 +536,39 @@ export function formatQuotaWithCurrency(
 }
 
 /**
+ * Format quota as money with exactly two fraction digits (cents).
+ *
+ * Used where a balance must read like an amount of money rather than a
+ * high-precision quota value (for example the admin top-up dialog).
+ * Token-only display keeps the normal quota formatting.
+ */
+export function formatQuotaToCents(quota: number | null | undefined): string {
+  if (quota == null || Number.isNaN(quota)) return '-'
+
+  const { config, meta } = getCurrencyDisplay()
+  if (meta.kind === 'tokens') {
+    return formatQuotaWithCurrency(quota)
+  }
+
+  const amount = (quota / config.quotaPerUnit) * meta.exchangeRate
+  if (meta.kind === 'currency') {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: meta.currencyCode,
+      currencyDisplay: 'narrowSymbol',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount)
+  }
+
+  const value = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+  return `${meta.symbol} ${value}`
+}
+
+/**
  * Get the current currency label for UI display.
  *
  * Returns a simple string label representing the current display currency.
