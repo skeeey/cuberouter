@@ -70,6 +70,7 @@ func TestTopUpCreditedQuotaByProvider(t *testing.T) {
 	}{
 		{"epay cny new order", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: "payment", Amount: 10, Money: 10, Rate: 7.3}, 684932},
 		{"epay cny migrated quota amount", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: "payment", Amount: 684932, Money: 10}, 684932},
+		{"epay migrated quota under usd display", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: "payment", Amount: 684932, Money: 10}, 684932},
 		{"alipay cny", operation_setting.QuotaDisplayTypeCNY, TopUp{PaymentProvider: PaymentProviderAlipay, PaymentMethod: PaymentMethodAlipay, Amount: 1, Money: 1}, 68493},
 		{"stripe uses money", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderStripe, Money: 2}, 1000000},
 		{"creem amount is quota", operation_setting.QuotaDisplayTypeUSD, TopUp{PaymentProvider: PaymentProviderCreem, Amount: 12345}, 12345},
