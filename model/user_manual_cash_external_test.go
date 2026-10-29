@@ -32,8 +32,6 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -100,12 +98,7 @@ func TestManualCashTopUpFlowMySQL(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_MYSQL_DSN is not configured")
 	}
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	testManualCashTopUpFlow(t, db)
+	testManualCashTopUpFlow(t, mysqlScratchDatabase(t, dsn))
 }
 
 func TestManualCashTopUpFlowPostgreSQL(t *testing.T) {
@@ -113,13 +106,5 @@ func TestManualCashTopUpFlowPostgreSQL(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_POSTGRES_DSN is not configured")
 	}
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	testManualCashTopUpFlow(t, db)
+	testManualCashTopUpFlow(t, postgresScratchSchema(t, dsn))
 }

@@ -181,7 +181,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         </div>
 
         <div className='space-y-2'>
-          <Label>
+          <Label htmlFor='user-topup-amount'>
             {t('Recharge Amount')} ({currencyLabel})
           </Label>
           <div className='relative'>
@@ -191,6 +191,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
               </span>
             ) : null}
             <Input
+              id='user-topup-amount'
               type='number'
               step={tokensOnly ? 1 : 0.01}
               min={0}
@@ -210,8 +211,9 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         </div>
 
         <div className='space-y-2'>
-          <Label>{t('Remark')}</Label>
+          <Label htmlFor='user-topup-remark'>{t('Remark')}</Label>
           <Textarea
+            id='user-topup-remark'
             rows={3}
             maxLength={255}
             value={remark}

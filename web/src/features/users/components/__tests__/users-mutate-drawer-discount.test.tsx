@@ -18,7 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState, type ReactNode } from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -233,6 +233,40 @@ describe('users mutate drawer model discounts', () => {
 
     await waitFor(() => expect(saveButton).toBeDisabled())
     expect(screen.getByDisplayValue('80')).toBeDisabled()
+  })
+
+  test('discards a stale user detail response after switching users', async () => {
+    let resolveFirstUser!: (value: {
+      success: boolean
+      data: User
+    }) => void
+    getUserMock.mockImplementation((id) =>
+      id === EDITED_USER_ID
+        ? new Promise((resolve) => {
+            resolveFirstUser = resolve
+          })
+        : Promise.resolve({
+            success: true,
+            data: buildUser({
+              id: SECOND_USER_ID,
+              username: 'second-user',
+              display_name: 'Second User',
+              email: 'second@example.com',
+            }),
+          })
+    )
+
+    renderHarness()
+    fireEvent.click(screen.getByText('Edit second user'))
+    await waitFor(() => expect(getUserMock).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      resolveFirstUser({ success: true, data: buildUser() })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Top-up' }))
+    expect(await screen.findByText('Second User')).toBeInTheDocument()
+    expect(screen.queryByText('Discount User')).not.toBeInTheDocument()
   })
 
   test('hides the discounts section when creating a user', async () => {

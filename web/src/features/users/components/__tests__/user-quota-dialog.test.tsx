@@ -114,11 +114,11 @@ describe('UserQuotaDialog', () => {
       />
     )
 
-    fireEvent.change(screen.getByRole('spinbutton'), {
+    fireEvent.change(screen.getByLabelText(/Recharge Amount/), {
       target: { value: '10' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Cash Account' }))
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByLabelText('Remark'), {
       target: { value: '  首充赠送  ' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
@@ -142,12 +142,12 @@ describe('UserQuotaDialog', () => {
     const confirm = screen.getByRole('button', { name: 'Confirm' })
     expect(confirm).toBeDisabled()
 
-    fireEvent.change(screen.getByRole('spinbutton'), {
+    fireEvent.change(screen.getByLabelText(/Recharge Amount/), {
       target: { value: '0' },
     })
     expect(confirm).toBeDisabled()
 
-    fireEvent.change(screen.getByRole('spinbutton'), {
+    fireEvent.change(screen.getByLabelText(/Recharge Amount/), {
       target: { value: '5' },
     })
     expect(confirm).toBeEnabled()
@@ -156,7 +156,7 @@ describe('UserQuotaDialog', () => {
   test('limits the amount input to two decimal places', () => {
     renderDialog()
 
-    const input = screen.getByRole('spinbutton')
+    const input = screen.getByLabelText(/Recharge Amount/)
     expect(input).toHaveAttribute('step', '0.01')
 
     fireEvent.change(input, { target: { value: '10.12' } })

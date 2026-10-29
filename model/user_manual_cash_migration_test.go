@@ -29,8 +29,6 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -76,12 +74,8 @@ func TestMigrateUserManualCashTopUpColumnMySQL(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_MYSQL_DSN is not configured")
 	}
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	testManualCashTopUpColumnMigration(t, db)
+	// 迁移用例会删列，必须用一次性数据库，避免破坏 DSN 指向的已有数据。
+	testManualCashTopUpColumnMigration(t, mysqlScratchDatabase(t, dsn))
 }
 
 func TestMigrateUserManualCashTopUpColumnPostgreSQL(t *testing.T) {
@@ -89,13 +83,6 @@ func TestMigrateUserManualCashTopUpColumnPostgreSQL(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_POSTGRES_DSN is not configured")
 	}
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	testManualCashTopUpColumnMigration(t, db)
+	// 迁移用例会删列，必须用一次性 schema，避免破坏 DSN 指向的已有数据。
+	testManualCashTopUpColumnMigration(t, postgresScratchSchema(t, dsn))
 }
