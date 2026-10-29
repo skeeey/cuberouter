@@ -417,6 +417,28 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
+// attachUpstreamErrorDiagnostics adds the upstream response details captured by
+// RelayErrorHandler to the error log's `other` field. It also backfills the
+// upstream request id column when the provider returned an id header that the
+// generic capture path did not recognize.
+func attachUpstreamErrorDiagnostics(c *gin.Context, other map[string]interface{}, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	if other == nil || err == nil || err.Diagnostics == nil {
+		return
+	}
+	diagnostics := *err.Diagnostics
+	if relayInfo != nil {
+		diagnostics.RequestedModel = relayInfo.OriginModelName
+		if relayInfo.ChannelMeta != nil {
+			diagnostics.Endpoint = relayInfo.ChannelBaseUrl
+			diagnostics.UpstreamModel = relayInfo.UpstreamModelName
+		}
+	}
+	other["upstream_error"] = diagnostics
+	if diagnostics.RequestID != "" && c != nil && c.GetString(common.UpstreamRequestIdKey) == "" {
+		c.Set(common.UpstreamRequestIdKey, diagnostics.RequestID)
+	}
+}
+
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
@@ -463,6 +485,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
 		service.AppendTaskPluginContextAuditInfo(c, other)
+		attachUpstreamErrorDiagnostics(c, other, err, relayInfo)
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()

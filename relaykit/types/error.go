@@ -103,6 +103,19 @@ const (
 	ErrorCodeOrganizationDisabled                ErrorCode = "organization_disabled"
 )
 
+// UpstreamErrorDiagnostics captures response details from a failed upstream
+// call. It is written to the error log's `other` field for diagnosis and is
+// never returned to the client.
+type UpstreamErrorDiagnostics struct {
+	StatusCode     int               `json:"status_code,omitempty"`
+	RequestID      string            `json:"request_id,omitempty"`
+	BodyPreview    string            `json:"body_preview,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Endpoint       string            `json:"endpoint,omitempty"`
+	RequestedModel string            `json:"requested_model,omitempty"`
+	UpstreamModel  string            `json:"upstream_model,omitempty"`
+}
+
 type NewAPIError struct {
 	Err            error
 	RelayError     any
@@ -112,6 +125,10 @@ type NewAPIError struct {
 	errorCode      ErrorCode
 	StatusCode     int
 	Metadata       json.RawMessage
+	// Diagnostics keeps upstream-only failure details (response body preview,
+	// request id, response headers, endpoint/model) for the error log. It is
+	// deliberately excluded from JSON responses sent to clients.
+	Diagnostics *UpstreamErrorDiagnostics `json:"-"`
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

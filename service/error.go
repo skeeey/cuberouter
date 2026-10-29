@@ -84,14 +84,80 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 	return claudeErr
 }
 
+const upstreamErrorBodyPreviewLimit = 8 * 1024
+
+// Keep this list in sync with the generic upstream request-id capture path.
+// The diagnostics path reads headers directly because RelayErrorHandler only
+// receives a context.Context, not the Gin context that stores the column value.
+var upstreamErrorRequestIDHeaders = []string{
+	common.RequestIdKey, // new-api / cuberouter gateways
+	"X-Request-Id",      // AstraFlow, Ali MaaS, Volcengine Ark
+	"Request-Id",        // JD Cloud
+	"X-Bce-Request-Id",  // Baidu Qianfan
+	"X-Ds-Trace-Id",     // DeepSeek
+	"X-Acs-Request-Id",  // Aliyun Yike RPC
+}
+
+var upstreamErrorResponseHeaders = []string{
+	"Retry-After",
+	"X-Ratelimit-Limit-Requests",
+	"X-Ratelimit-Remaining-Requests",
+	"X-Ratelimit-Limit-Tokens",
+	"X-Ratelimit-Remaining-Tokens",
+}
+
+func captureUpstreamErrorDiagnostics(resp *http.Response) *types.UpstreamErrorDiagnostics {
+	diagnostics := &types.UpstreamErrorDiagnostics{}
+	if resp == nil {
+		return diagnostics
+	}
+	diagnostics.StatusCode = resp.StatusCode
+	headers := make(map[string]string)
+	for _, name := range upstreamErrorRequestIDHeaders {
+		if value := resp.Header.Get(name); value != "" {
+			if diagnostics.RequestID == "" {
+				diagnostics.RequestID = value
+			}
+			headers[http.CanonicalHeaderKey(name)] = value
+		}
+	}
+	for _, name := range upstreamErrorResponseHeaders {
+		if value := resp.Header.Get(name); value != "" {
+			headers[http.CanonicalHeaderKey(name)] = value
+		}
+	}
+	if len(headers) > 0 {
+		diagnostics.Headers = headers
+	}
+	return diagnostics
+}
+
+func setUpstreamErrorBodyPreview(diagnostics *types.UpstreamErrorDiagnostics, body []byte) {
+	if diagnostics == nil {
+		return
+	}
+	if len(body) > upstreamErrorBodyPreviewLimit {
+		body = body[:upstreamErrorBodyPreviewLimit]
+	}
+	diagnostics.BodyPreview = common.LocalLogPreview(common.MaskSensitiveInfo(string(body)))
+}
+
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	diagnostics := captureUpstreamErrorDiagnostics(resp)
+	defer func() {
+		if newApiErr != nil {
+			newApiErr.Diagnostics = diagnostics
+		}
+	}()
+	defer CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		diagnostics.BodyPreview = common.LocalLogPreview(fmt.Sprintf("<read body failed: %s>", common.MaskSensitiveInfo(err.Error())))
 		return
 	}
-	CloseResponseBodyGracefully(resp)
+	setUpstreamErrorBodyPreview(diagnostics, responseBody)
 	var errResponse dto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)

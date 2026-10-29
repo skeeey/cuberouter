@@ -150,6 +150,46 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	require.Contains(t, logBuffer.String(), body)
 }
 
+func TestRelayErrorHandlerCapturesUpstreamErrorDiagnostics(t *testing.T) {
+	withDebugEnabled(t, false)
+
+	body := `{"error":{"message":"upstream timeout","type":"server_error","code":"502"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Header: http.Header{
+			"X-Request-Id": {"req-123"},
+			"Retry-After":  {"5"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.NotNil(t, newAPIError.Diagnostics)
+	require.Equal(t, http.StatusBadGateway, newAPIError.Diagnostics.StatusCode)
+	require.Equal(t, "req-123", newAPIError.Diagnostics.RequestID)
+	require.Contains(t, newAPIError.Diagnostics.BodyPreview, "upstream timeout")
+	require.Equal(t, "5", newAPIError.Diagnostics.Headers["Retry-After"])
+}
+
+func TestRelayErrorHandlerLimitsUpstreamErrorBodyPreview(t *testing.T) {
+	withDebugEnabled(t, false)
+
+	body := strings.Repeat("x", upstreamErrorBodyPreviewLimit+256)
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.NotNil(t, newAPIError.Diagnostics)
+	require.Contains(t, newAPIError.Diagnostics.BodyPreview, "[truncated")
+	require.NotContains(t, newAPIError.Diagnostics.BodyPreview, strings.Repeat("x", upstreamErrorBodyPreviewLimit+1))
+}
+
 func withDebugEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 
